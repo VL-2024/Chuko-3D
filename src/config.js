@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.6.1',
+  version: '0.7',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -36,6 +36,15 @@ window.CHUKO3D_CONFIG = Object.freeze({
     toneContrast: 1.10,
     fieldInnerRadius: 3.14,
     fieldInnerLift: 0.012
+  },
+
+
+  environment: {
+    ornamentCount: 18,
+    mountainLayers: 3,
+    skyTextureSize: 256,
+    fogStart: 8.5,
+    fogEnd: 18.0
   },
 
   physics: {

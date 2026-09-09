@@ -34,7 +34,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.6.1: dynamic round objects are created once and reused on every reset.
+  // v0.7: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
@@ -233,6 +233,137 @@
     return mesh;
   }
 
+  function freezeStatic(mesh) {
+    if (!mesh) return mesh;
+    mesh.isPickable = false;
+    mesh.computeWorldMatrix(true);
+    mesh.freezeWorldMatrix();
+    return mesh;
+  }
+
+  function createSkyGradientTexture() {
+    const size = Math.max(128, Number(C.environment?.skyTextureSize || 256));
+    const tex = new BABYLON.DynamicTexture('sky-gradient', { width: 16, height: size }, scene, false);
+    const ctx = tex.getContext();
+    const grad = ctx.createLinearGradient(0, 0, 0, size);
+    grad.addColorStop(0.00, '#071c35');
+    grad.addColorStop(0.36, '#174b67');
+    grad.addColorStop(0.68, '#6c8f91');
+    grad.addColorStop(0.86, '#d3b77e');
+    grad.addColorStop(1.00, '#e8ce98');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 16, size);
+    tex.update(false);
+    tex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+    return tex;
+  }
+
+  function createMountainRidge(name, z, baseY, peaks, color) {
+    const positions = [];
+    const indices = [];
+    const normals = [];
+    const uvs = [];
+    for (let i = 0; i < peaks.length; i++) {
+      const [x, y] = peaks[i];
+      positions.push(x, baseY, z, x, y, z);
+      uvs.push(i / Math.max(1, peaks.length - 1), 0, i / Math.max(1, peaks.length - 1), 1);
+      if (i < peaks.length - 1) {
+        const a = i * 2;
+        const b = a + 1;
+        const c = a + 2;
+        const d = a + 3;
+        indices.push(a, b, c, c, b, d);
+      }
+    }
+    BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+    const vd = new BABYLON.VertexData();
+    vd.positions = positions;
+    vd.indices = indices;
+    vd.normals = normals;
+    vd.uvs = uvs;
+    const mesh = new BABYLON.Mesh(name, scene);
+    vd.applyToMesh(mesh, true);
+    const mat = new BABYLON.StandardMaterial(`${name}-mat`, scene);
+    mat.diffuseColor = color;
+    mat.emissiveColor = color.scale(0.16);
+    mat.specularColor = BABYLON.Color3.Black();
+    mat.backFaceCulling = false;
+    mesh.material = mat;
+    freezeStatic(mesh);
+    mat.freeze();
+    return mesh;
+  }
+
+  function createMountainEnvironment() {
+    // Lightweight Kyrgyz horizon: three static low-poly silhouettes, no textures,
+    // no shadows and no physics. The field remains the visual priority.
+    const back = [
+      [-9.5,1.00],[-8.2,2.10],[-7.4,1.65],[-6.4,2.75],[-5.4,1.85],[-4.2,3.45],[-3.2,2.30],[-2.0,3.05],[-0.8,2.05],[0.4,3.25],[1.6,2.10],[2.8,3.60],[4.0,2.25],[5.2,3.15],[6.5,1.95],[7.6,2.75],[8.8,1.40],[9.6,1.05]
+    ];
+    const mid = [
+      [-9.5,0.65],[-8.3,1.30],[-7.2,1.05],[-6.0,2.05],[-4.9,1.35],[-3.7,2.25],[-2.5,1.45],[-1.2,2.35],[0.0,1.35],[1.1,2.20],[2.3,1.45],[3.6,2.35],[4.8,1.40],[6.0,2.00],[7.2,1.25],[8.4,1.65],[9.6,0.72]
+    ];
+    const front = [
+      [-9.5,0.35],[-8.1,0.95],[-6.7,0.55],[-5.4,1.35],[-4.0,0.70],[-2.6,1.45],[-1.3,0.70],[0.1,1.30],[1.6,0.60],[3.0,1.25],[4.4,0.70],[5.8,1.30],[7.2,0.62],[8.5,0.95],[9.6,0.38]
+    ];
+    createMountainRidge('mountains-back', -10.2, -0.38, back, new BABYLON.Color3(0.17, 0.27, 0.30));
+    createMountainRidge('mountains-mid', -8.7, -0.38, mid, new BABYLON.Color3(0.13, 0.22, 0.22));
+    createMountainRidge('mountains-front', -7.25, -0.38, front, new BABYLON.Color3(0.10, 0.16, 0.14));
+
+    // Warm low sun. It is emissive and does not participate in lighting/shadows.
+    const sunMat = new BABYLON.StandardMaterial('sun-disc-mat', scene);
+    sunMat.disableLighting = true;
+    sunMat.emissiveColor = new BABYLON.Color3(1.0, 0.63, 0.25);
+    sunMat.alpha = 0.92;
+    const sunDisc = BABYLON.MeshBuilder.CreateSphere('sun-disc', { diameter: 0.95, segments: 10 }, scene);
+    sunDisc.position.set(-4.9, 2.55, -9.45);
+    sunDisc.material = sunMat;
+    freezeStatic(sunDisc);
+    sunMat.freeze();
+  }
+
+  function createFieldOrnaments() {
+    const count = Math.max(12, Number(C.environment?.ornamentCount || 18));
+    const burgundy = material('ornament-burgundy', new BABYLON.Color3(0.27, 0.055, 0.045), 0.78, 0.02);
+    const gold = material('ornament-gold', new BABYLON.Color3(0.72, 0.46, 0.12), 0.54, 0.22);
+
+    const base = BABYLON.MeshBuilder.CreateCylinder('ornament-base', {
+      diameter: 0.20,
+      height: 0.018,
+      tessellation: 4
+    }, scene);
+    base.scaling.set(1.25, 1, 0.62);
+    base.material = burgundy;
+    base.isPickable = false;
+
+    const inner = BABYLON.MeshBuilder.CreateCylinder('ornament-inner-base', {
+      diameter: 0.105,
+      height: 0.021,
+      tessellation: 4
+    }, scene);
+    inner.material = gold;
+    inner.isPickable = false;
+
+    const radius = C.field.radius - 0.23;
+    for (let i = 0; i < count; i++) {
+      const a = i * Math.PI * 2 / count;
+      const x = Math.sin(a) * radius;
+      const z = Math.cos(a) * radius;
+      const outerPiece = i === 0 ? base : base.createInstance(`ornament-${i}`);
+      outerPiece.scaling.copyFrom(base.scaling);
+      outerPiece.position.set(x, 0.045, z);
+      outerPiece.rotation.y = -a + Math.PI / 4;
+      const innerPiece = i === 0 ? inner : inner.createInstance(`ornament-inner-${i}`);
+      innerPiece.position.set(x, 0.056, z);
+      innerPiece.rotation.y = -a + Math.PI / 4;
+      freezeStatic(outerPiece);
+      freezeStatic(innerPiece);
+    }
+    burgundy.freeze();
+    gold.freeze();
+  }
+
   function createEnvironment() {
     scene.clearColor = new BABYLON.Color4(0.018, 0.055, 0.072, 1);
 
@@ -240,6 +371,11 @@
     scene.imageProcessingConfiguration.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
     scene.imageProcessingConfiguration.exposure = C.visual?.toneExposure || 1.08;
     scene.imageProcessingConfiguration.contrast = C.visual?.toneContrast || 1.10;
+
+    scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
+    scene.fogColor = new BABYLON.Color3(0.32, 0.43, 0.43);
+    scene.fogStart = Number(C.environment?.fogStart || 8.5);
+    scene.fogEnd = Number(C.environment?.fogEnd || 18.0);
 
     const camera = new BABYLON.ArcRotateCamera(
       'camera',
@@ -255,14 +391,33 @@
     camera.upperBetaLimit = 1.20;
     camera.inputs.clear();
 
+    // One tiny generated gradient texture replaces a heavy HDR/skybox.
+    const skyTex = createSkyGradientTexture();
+    const skyMat = new BABYLON.StandardMaterial('sky-mat', scene);
+    skyMat.disableLighting = true;
+    skyMat.emissiveTexture = skyTex;
+    skyMat.backFaceCulling = false;
+    skyMat.fogEnabled = false;
+    const sky = BABYLON.MeshBuilder.CreateSphere('sky', {
+      diameter: 34,
+      segments: isMobile() ? 12 : 18,
+      sideOrientation: BABYLON.Mesh.BACKSIDE
+    }, scene);
+    sky.material = skyMat;
+    sky.infiniteDistance = true;
+    sky.isPickable = false;
+    sky.applyFog = false;
+    skyMat.freeze();
+
     const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.2, 1, 0.1), scene);
-    hemi.intensity = 0.96;
-    hemi.groundColor = new BABYLON.Color3(0.035, 0.055, 0.045);
+    hemi.intensity = 0.88;
+    hemi.diffuse = new BABYLON.Color3(0.80, 0.90, 1.0);
+    hemi.groundColor = new BABYLON.Color3(0.16, 0.12, 0.075);
 
     const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.35, -1, 0.45), scene);
     sun.position = new BABYLON.Vector3(4, 8, -5);
     sun.intensity = 2.25;
-    sun.diffuse = new BABYLON.Color3(1.0, 0.90, 0.72);
+    sun.diffuse = new BABYLON.Color3(1.0, 0.83, 0.60);
 
     const shadowMapSize = isMobile() ? 512 : 1024;
     const shadows = new BABYLON.ShadowGenerator(shadowMapSize, sun);
@@ -270,7 +425,10 @@
     shadows.bias = 0.002;
     scene.metadata = { shadows };
 
-    const fieldMat = material('fieldMat', new BABYLON.Color3(0.30, 0.46, 0.25), 0.91, 0.0);
+    createMountainEnvironment();
+
+    // Field base: dark felt/leather side + warm moss playing cloth.
+    const fieldMat = material('fieldMat', new BABYLON.Color3(0.10, 0.12, 0.075), 0.90, 0.0);
     field = BABYLON.MeshBuilder.CreateCylinder('field', {
       height: C.field.thickness,
       diameter: C.field.visualRadius * 2,
@@ -280,17 +438,40 @@
     field.material = fieldMat;
     field.receiveShadows = true;
 
-
-    // Slight inset playing surface: gives the field depth without a texture or extra physics body.
-    const innerMat = material('fieldInnerMat', new BABYLON.Color3(0.38, 0.55, 0.30), 0.94, 0.0);
-    const inner = BABYLON.MeshBuilder.CreateCylinder('field-inner', {
+    const innerMat = material('fieldInnerMat', new BABYLON.Color3(0.39, 0.47, 0.245), 0.97, 0.0);
+    const innerSurface = BABYLON.MeshBuilder.CreateCylinder('field-inner', {
       height: 0.024,
       diameter: (C.visual?.fieldInnerRadius || 3.14) * 2,
       tessellation: 64
     }, scene);
-    inner.position.y = C.visual?.fieldInnerLift || 0.012;
-    inner.material = innerMat;
-    inner.receiveShadows = true;
+    innerSurface.position.y = C.visual?.fieldInnerLift || 0.012;
+    innerSurface.material = innerMat;
+    innerSurface.receiveShadows = true;
+
+    // Layered border gives the arena a finished, Kyrgyz felt-carpet feel.
+    const rimDarkMat = material('rim-dark-mat', new BABYLON.Color3(0.22, 0.055, 0.045), 0.78, 0.02);
+    const rimGoldMat = material('rim-gold-mat', new BABYLON.Color3(0.62, 0.39, 0.11), 0.60, 0.18);
+    const rim = BABYLON.MeshBuilder.CreateTorus('rim', {
+      diameter: C.field.radius * 2 + 0.14,
+      thickness: 0.085,
+      tessellation: 64
+    }, scene);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.028;
+    rim.material = rimDarkMat;
+    rim.receiveShadows = true;
+
+    const goldRing = BABYLON.MeshBuilder.CreateTorus('rim-gold', {
+      diameter: (C.field.radius - 0.08) * 2,
+      thickness: 0.028,
+      tessellation: 64
+    }, scene);
+    goldRing.rotation.x = Math.PI / 2;
+    goldRing.position.y = 0.043;
+    goldRing.material = rimGoldMat;
+    goldRing.receiveShadows = false;
+
+    createFieldOrnaments();
 
     const fieldPhysicsMesh = BABYLON.MeshBuilder.CreateCylinder('field-physics', {
       height: C.field.thickness,
@@ -307,23 +488,12 @@
     );
     bodies.push({ mesh: fieldPhysicsMesh, aggregate: fieldAggregate, permanent: true });
 
-    // В v0.2 визуальный бортик ниже: разлёт лучше читается и край меньше похож на стену.
-    const rimMat = material('rimMat', new BABYLON.Color3(0.58, 0.66, 0.32), 0.72, 0.08);
-    const rim = BABYLON.MeshBuilder.CreateTorus('rim', {
-      diameter: C.field.radius * 2 + 0.14,
-      thickness: 0.075,
-      tessellation: 64
-    }, scene);
-    rim.rotation.x = Math.PI / 2;
-    rim.position.y = 0.025;
-    rim.material = rimMat;
-    rim.receiveShadows = true;
-
     const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: 25, height: 25 }, scene);
     ground.position.y = -0.22;
-    const groundMat = material('groundMat', new BABYLON.Color3(0.055, 0.115, 0.095), 1.0, 0.0);
+    const groundMat = material('groundMat', new BABYLON.Color3(0.095, 0.115, 0.075), 1.0, 0.0);
     ground.material = groundMat;
     ground.receiveShadows = true;
+    freezeStatic(ground);
 
     const groundPhysicsMesh = BABYLON.MeshBuilder.CreateBox('ground-physics', { width: 25, depth: 25, height: 0.18 }, scene);
     groundPhysicsMesh.position.y = -0.31;
@@ -374,7 +544,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.6.1 pooling/reset -------------------------------------------------------
+  // v0.7 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -494,7 +664,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.6.1 · pooled reset · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.7 · pooled reset · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -554,7 +724,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.6.1] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.7] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -913,7 +1083,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.6.1 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.7 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -990,7 +1160,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.6.1 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
+      ui.hint.textContent = 'v0.7 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
