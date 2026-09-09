@@ -317,7 +317,7 @@
     roundIndex++;
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.4 · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.4.1 · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -382,6 +382,14 @@
 
     sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
     updateBodyCount();
+
+    // v0.4.1: keep a visible default trajectory on screen before the user touches SAKA.
+    // This also makes it obvious where to drag on mobile.
+    const defaultGeo = aimGeometry();
+    const defaultPreview = landingForDirectionAndPower(defaultGeo.toCenter, 0.58);
+    aimState.power = 0.58;
+    aimState.guideDir = defaultGeo.toCenter;
+    updateAimVisuals(defaultPreview.point, 0.58);
   }
 
   function ballisticVelocity(start, target, flightTime, gravityY) {
@@ -491,17 +499,19 @@
 
   function createAimVisuals() {
     aimDotMaterial = new BABYLON.StandardMaterial('aim-dot-mat', scene);
-    aimDotMaterial.diffuseColor = new BABYLON.Color3(0.95, 0.98, 0.98);
-    aimDotMaterial.emissiveColor = new BABYLON.Color3(0.32, 0.38, 0.40);
-    aimDotMaterial.alpha = 0.86;
+    aimDotMaterial.diffuseColor = new BABYLON.Color3(0.98, 1.00, 0.86);
+    aimDotMaterial.emissiveColor = new BABYLON.Color3(0.78, 0.84, 0.18);
+    aimDotMaterial.alpha = 0.98;
+    aimDotMaterial.disableDepthWrite = true;
 
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 18; i++) {
       const dot = BABYLON.MeshBuilder.CreateSphere(`aim-dot-${i}`, {
-        diameter: i === 15 ? 0.085 : 0.060,
+        diameter: i === 17 ? 0.105 : 0.075,
         segments: 5
       }, scene);
       dot.material = aimDotMaterial;
       dot.isPickable = false;
+      dot.renderingGroupId = 2;
       dot.setEnabled(false);
       aimDots.push(dot);
     }
@@ -509,7 +519,8 @@
     const targetMat = new BABYLON.StandardMaterial('aim-target-mat', scene);
     targetMat.diffuseColor = new BABYLON.Color3(0.90, 0.94, 0.20);
     targetMat.emissiveColor = new BABYLON.Color3(0.30, 0.34, 0.03);
-    targetMat.alpha = 0.94;
+    targetMat.alpha = 0.98;
+    targetMat.disableDepthWrite = true;
     aimTarget = BABYLON.MeshBuilder.CreateTorus('aim-target', {
       diameter: 0.34,
       thickness: 0.035,
@@ -517,6 +528,7 @@
     }, scene);
     aimTarget.material = targetMat;
     aimTarget.isPickable = false;
+    aimTarget.renderingGroupId = 2;
     aimTarget.setEnabled(false);
   }
 
@@ -659,9 +671,11 @@
         aimState.dragging = false;
         aimState.pointerId = null;
         saka?.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
-        hideAimVisuals();
+        const geo = aimGeometry();
+        const preview = landingForDirectionAndPower(geo.toCenter, 0.58);
+        updateAimVisuals(preview.point, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.4 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.4.1 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });

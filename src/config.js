@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.4',
+  version: '0.4.1',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -41,13 +41,13 @@ window.CHUKO3D_CONFIG = Object.freeze({
   },
 
   throw: {
-    start: { x: 0.05, y: 0.42, z: 4.45 },
+    start: { x: 0.72, y: 0.72, z: 2.85 },
     targetY: 0.30,
 
     // Реальная Havok-баллистика. Сильный pull даёт чуть более высокую/долгую дугу,
     // поэтому вертикальная составляющая удара также растёт.
-    flightTimeMin: 1.14,
-    flightTimeMax: 1.31,
+    flightTimeMin: 1.02,
+    flightTimeMax: 1.18,
     sideSpin: 14.8,
     settleMs: 3100,
 
