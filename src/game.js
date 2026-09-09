@@ -34,7 +34,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8: dynamic round objects are created once and reused on every reset.
+  // v0.8.1: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
@@ -260,19 +260,17 @@
   }
 
   function createBackdropPhoto() {
-    const plane = BABYLON.MeshBuilder.CreatePlane('photo-backdrop', { width: 15.8, height: 8.9 }, scene);
-    plane.position.set(0, 3.1, -11.8);
-    plane.rotation.x = -0.025;
+    // Use the uploaded v20.61 artwork almost directly as the main backplate.
+    const aspect = 900 / 1600;
+    const height = 18.0;
+    const width = height * aspect;
+    const plane = BABYLON.MeshBuilder.CreatePlane('photo-backdrop', { width, height }, scene);
+    plane.position.set(-0.15, 5.0, -11.4);
     plane.isPickable = false;
 
     const tex = new BABYLON.Texture('assets/background-realistic.webp', scene, true, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
     tex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
     tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    // Crop the lower part of the source image so the field remains readable
-    // while keeping the mountains, yurt edge and warm sky from v20.61.
-    tex.uScale = 1.0;
-    tex.vScale = 0.72;
-    tex.vOffset = 0.0;
 
     const mat = new BABYLON.StandardMaterial('photo-backdrop-mat', scene);
     mat.diffuseTexture = tex;
@@ -282,6 +280,29 @@
     mat.fogEnabled = false;
     plane.material = mat;
     freezeStatic(plane);
+
+    // Soft bottom fade keeps the UI and 3D pile readable while preserving the photo.
+    const fadeTex = new BABYLON.DynamicTexture('backdrop-fade-tex', { width: 8, height: 256 }, scene, false);
+    const fctx = fadeTex.getContext();
+    const grad = fctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.0, 'rgba(0,0,0,0.0)');
+    grad.addColorStop(0.55, 'rgba(8,12,18,0.08)');
+    grad.addColorStop(1.0, 'rgba(8,12,18,0.72)');
+    fctx.fillStyle = grad;
+    fctx.fillRect(0, 0, 8, 256);
+    fadeTex.update(false);
+    const fadeMat = new BABYLON.StandardMaterial('backdrop-fade-mat', scene);
+    fadeMat.diffuseTexture = fadeTex;
+    fadeMat.opacityTexture = fadeTex;
+    fadeMat.disableLighting = true;
+    fadeMat.emissiveColor = new BABYLON.Color3(0.03, 0.04, 0.06);
+    fadeMat.backFaceCulling = false;
+    fadeMat.fogEnabled = false;
+    const fade = BABYLON.MeshBuilder.CreatePlane('photo-backdrop-fade', { width: width * 1.04, height: height * 0.44 }, scene);
+    fade.position.set(-0.15, 0.15, -11.3);
+    fade.material = fadeMat;
+    fade.isPickable = false;
+    freezeStatic(fade);
     return plane;
   }
 
@@ -308,92 +329,8 @@
   }
 
   function createFieldTopTexture() {
-    const size = isMobile() ? 768 : 1024;
-    const tex = new BABYLON.DynamicTexture('field-top-tex', { width: size, height: size }, scene, false);
-    const ctx = tex.getContext();
-    const cx = size / 2;
-    const cy = size / 2;
-    const radius = size * 0.48;
-
-    ctx.clearRect(0, 0, size, size);
-
-    // Outer felt ring.
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    const outer = ctx.createRadialGradient(cx, cy, radius * 0.12, cx, cy, radius);
-    outer.addColorStop(0.0, '#2b5d93');
-    outer.addColorStop(0.52, '#1d426e');
-    outer.addColorStop(1.0, '#12304f');
-    ctx.fillStyle = outer;
-    ctx.fill();
-
-    // Subtle textile grain.
-    for (let i = 0; i < 1800; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const rr = Math.sqrt(Math.random()) * radius * 0.95;
-      const x = cx + Math.cos(a) * rr;
-      const y = cy + Math.sin(a) * rr;
-      const alpha = 0.022 + Math.random() * 0.02;
-      const shade = Math.random() > 0.5 ? 255 : 0;
-      ctx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, ${alpha})`;
-      ctx.fillRect(x, y, 2, 2);
-    }
-
-    // Inner playing surface.
-    const innerRadius = radius * 0.79;
-    ctx.beginPath();
-    ctx.arc(cx, cy, innerRadius, 0, Math.PI * 2);
-    const inner = ctx.createRadialGradient(cx, cy, innerRadius * 0.10, cx, cy, innerRadius);
-    inner.addColorStop(0.0, '#295a90');
-    inner.addColorStop(0.55, '#1b416f');
-    inner.addColorStop(1.0, '#143353');
-    ctx.fillStyle = inner;
-    ctx.fill();
-
-    // Soft central motif.
-    ctx.globalAlpha = 0.22;
-    drawCanvasOrnament(ctx, cx, cy, 2.6, Math.PI / 4, '#7ea0c7');
-    ctx.globalAlpha = 1;
-
-    // Inner play circle.
-    ctx.beginPath();
-    ctx.arc(cx, cy, innerRadius * 0.82, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(236, 224, 194, 0.92)';
-    ctx.lineWidth = size * 0.0075;
-    ctx.stroke();
-
-    // Four cardinal ornaments similar in spirit to v20.61.
-    const ornamentRadius = innerRadius * 0.77;
-    for (let i = 0; i < 4; i++) {
-      const ang = -Math.PI / 2 + i * Math.PI / 2;
-      const x = cx + Math.cos(ang) * ornamentRadius;
-      const y = cy + Math.sin(ang) * ornamentRadius;
-      drawCanvasOrnament(ctx, x, y, 1.05, ang + Math.PI / 2, 'rgba(236, 224, 194, 0.96)');
-    }
-
-    // Gold outer ring hints.
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.965, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(183, 141, 72, 0.95)';
-    ctx.lineWidth = size * 0.010;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.885, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(180, 149, 98, 0.42)';
-    ctx.lineWidth = size * 0.004;
-    ctx.stroke();
-
-    // Warm vignette for a more cinematic look.
-    const vignette = ctx.createRadialGradient(cx, cy, radius * 0.58, cx, cy, radius);
-    vignette.addColorStop(0.0, 'rgba(0,0,0,0.0)');
-    vignette.addColorStop(1.0, 'rgba(0,0,0,0.16)');
-    ctx.fillStyle = vignette;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    tex.update(false);
+    // Reuse the uploaded field artwork from v20.61 directly for closer visual fidelity.
+    const tex = new BABYLON.Texture('assets/field-clean.webp', scene, true, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
     tex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
     tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
     return tex;
@@ -469,15 +406,15 @@
   }
 
   function createEnvironment() {
-    scene.clearColor = new BABYLON.Color4(0.026, 0.055, 0.067, 1);
+    scene.clearColor = new BABYLON.Color4(0.030, 0.045, 0.060, 1);
 
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
     scene.imageProcessingConfiguration.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
-    scene.imageProcessingConfiguration.exposure = 1.10;
-    scene.imageProcessingConfiguration.contrast = 1.07;
+    scene.imageProcessingConfiguration.exposure = 1.04;
+    scene.imageProcessingConfiguration.contrast = 1.04;
 
     scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
-    scene.fogColor = new BABYLON.Color3(0.47, 0.39, 0.31);
+    scene.fogColor = new BABYLON.Color3(0.32, 0.28, 0.25);
     scene.fogStart = 10.5;
     scene.fogEnd = 22.0;
 
@@ -531,7 +468,7 @@
     createBackdropPhoto();
 
     // Base plinth / outer arena body.
-    const fieldBodyMat = material('field-body-mat', new BABYLON.Color3(0.21, 0.12, 0.08), 0.92, 0.0);
+    const fieldBodyMat = material('field-body-mat', new BABYLON.Color3(0.16, 0.10, 0.07), 0.94, 0.0);
     fieldBodyMat.clearCoat.isEnabled = true;
     fieldBodyMat.clearCoat.intensity = 0.12;
     field = BABYLON.MeshBuilder.CreateCylinder('field', {
@@ -543,7 +480,7 @@
     field.material = fieldBodyMat;
     field.receiveShadows = true;
 
-    const rimMat = material('field-rim-mat', new BABYLON.Color3(0.13, 0.21, 0.35), 0.74, 0.0);
+    const rimMat = material('field-rim-mat', new BABYLON.Color3(0.10, 0.16, 0.28), 0.72, 0.0);
     rimMat.clearCoat.isEnabled = true;
     rimMat.clearCoat.intensity = 0.26;
     rimMat.clearCoat.roughness = 0.52;
@@ -558,15 +495,15 @@
 
     const fieldTopMat = new BABYLON.PBRMaterial('field-top-mat', scene);
     fieldTopMat.albedoTexture = createFieldTopTexture();
-    fieldTopMat.roughness = 0.82;
+    fieldTopMat.roughness = 0.88;
     fieldTopMat.metallic = 0.0;
-    fieldTopMat.emissiveColor = new BABYLON.Color3(0.05, 0.07, 0.10);
+    fieldTopMat.emissiveColor = new BABYLON.Color3(0.03, 0.04, 0.06);
     const innerSurface = BABYLON.MeshBuilder.CreateCylinder('field-inner', {
       height: 0.028,
-      diameter: 6.06,
+      diameter: 6.18,
       tessellation: 72
     }, scene);
-    innerSurface.position.y = 0.030;
+    innerSurface.position.y = 0.028;
     innerSurface.material = fieldTopMat;
     innerSurface.receiveShadows = true;
 
@@ -666,7 +603,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8 pooling/reset -------------------------------------------------------
+  // v0.8.1 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -786,7 +723,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8 · pooled reset · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.1 · pooled reset · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -846,7 +783,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.1] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1205,7 +1142,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.1 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1282,7 +1219,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
+      ui.hint.textContent = 'v0.8.1 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
