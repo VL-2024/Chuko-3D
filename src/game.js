@@ -40,13 +40,13 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.8: dynamic round objects are created once and reused on every reset.
+  // v0.8.9: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v087-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v089-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 264,
@@ -55,13 +55,13 @@
     bgX: 0,
     bgY: -2,
     pileX: -0.18,
-    pileZ: -0.86,
-    spreadX: 0.38,
-    spreadZ: 0.82,
-    chukoScale: 0.82,
-    cameraRadius: 8.45,
-    cameraTargetX: -0.12,
-    cameraTargetZ: 0.04,
+    pileZ: -0.84,
+    spreadX: 0.34,
+    spreadZ: 0.68,
+    chukoScale: 0.72,
+    cameraRadius: 8.95,
+    cameraTargetX: 0.00,
+    cameraTargetZ: 0.00,
     sakaX: -0.16,
     sakaZ: 2.85
   });
@@ -440,7 +440,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.8: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.9: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -554,7 +554,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.8 pooling/reset -------------------------------------------------------
+  // v0.8.9 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -677,7 +677,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.8 · есть ползунок размера чүкө ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.9 · кучка уменьшена, можно докрутить ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -739,7 +739,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.8] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.9] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1100,7 +1100,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.8 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.9 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1178,7 +1178,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.8 · настройте композицию ⚙ · «Ещё бросок» без пересоздания Havok-тел';
+      ui.hint.textContent = 'v0.8.9 · настройте композицию ⚙ · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
