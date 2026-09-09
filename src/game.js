@@ -41,7 +41,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.16: dynamic round objects are created once and reused on every reset.
+  // v0.8.17: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
@@ -476,8 +476,37 @@
     return tex;
   }
 
+  function createContainmentRing() {
+    // Invisible perimeter that keeps chükö inside the visible play area.
+    const segments = 18;
+    const ringRadius = 4.10;
+    const wallHeight = 1.45;
+    const wallThickness = 0.16;
+    const segmentLength = 2 * Math.PI * ringRadius / segments * 0.94;
+    for (let i = 0; i < segments; i++) {
+      const a = (i / segments) * Math.PI * 2;
+      const x = Math.cos(a) * ringRadius;
+      const z = Math.sin(a) * ringRadius;
+      const wall = BABYLON.MeshBuilder.CreateBox(`contain-wall-${i}`, {
+        width: segmentLength,
+        height: wallHeight,
+        depth: wallThickness
+      }, scene);
+      wall.position.set(x, wallHeight * 0.5 - 0.02, z);
+      wall.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0, -a, 0);
+      wall.isVisible = false;
+      const agg = new BABYLON.PhysicsAggregate(
+        wall,
+        BABYLON.PhysicsShapeType.BOX,
+        { mass: 0, friction: 0.52, restitution: 0.10 },
+        scene
+      );
+      bodies.push({ mesh: wall, aggregate: agg, permanent: true });
+    }
+  }
+
   function createEnvironment() {
-    // v0.8.16: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.17: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -552,6 +581,8 @@
       scene
     );
     bodies.push({ mesh: groundPhysicsMesh, aggregate: groundAggregate, permanent: true });
+
+    createContainmentRing();
   }
 
   function addShadow(mesh) {
@@ -591,7 +622,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.16 pooling/reset -------------------------------------------------------
+  // v0.8.17 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -715,7 +746,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.16 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.17 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -777,7 +808,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.16] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.17] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1183,7 +1214,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.16 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.17 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1266,7 +1297,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.16 · разлёт восстановлен, маркер уточнён ⚙';
+      ui.hint.textContent = 'v0.8.17 · разлёт ограничен экраном ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1364,6 +1395,31 @@
     ui.bodyCount.textContent = String(bodies.length);
   }
 
+  function containScatterInView() {
+    if (!roundPool.initialized || !thrown) return;
+    const items = [...roundPool.chukos, roundPool.khan].filter(Boolean);
+    const softRadius = 3.92;
+    for (const item of items) {
+      const body = item?.aggregate?.body;
+      const mesh = item?.mesh;
+      if (!body || !mesh) continue;
+      const r = Math.hypot(mesh.position.x, mesh.position.z);
+      if (r <= softRadius || mesh.position.y > 1.25) continue;
+      const vel = readLinearVelocity(body);
+      const inv = 1 / Math.max(1e-6, r);
+      const nx = mesh.position.x * inv;
+      const nz = mesh.position.z * inv;
+      const outward = vel.x * nx + vel.z * nz;
+      let vx = vel.x * 0.96;
+      let vz = vel.z * 0.96;
+      if (outward > 0) {
+        vx -= nx * outward * 0.78;
+        vz -= nz * outward * 0.78;
+      }
+      body.setLinearVelocity(new BABYLON.Vector3(vx, vel.y, vz));
+    }
+  }
+
   function updatePerf() {
     const fps = engine.getFps();
     const frame = 1000 / Math.max(1, fps);
@@ -1414,6 +1470,7 @@
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
+      containScatterInView();
       if (saka && saka.position.y < -2.5) {
         throwState.active = false;
         pileReleasedForThrow = false;
