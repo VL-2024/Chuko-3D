@@ -1,48 +1,23 @@
-# CHUKO Modern 3D v0.6
+# CHUKO Modern 3D v0.6.1 — reset/pooling optimization
 
-Babylon.js + Havok mobile prototype based on the throw/impact feel of ЧҮКӨ v20.61. LMS is intentionally disconnected.
+Технический патч после мобильного теста v0.6 (57–58 FPS только в момент «Ещё бросок», затем 60 FPS).
 
-## Main change in v0.6 — first visual 3D pass
+## Что изменено
 
-- Replaced the v0.5 sphere/blob proxy with a **single procedural organic loft mesh** for every чүкө, ХАН and САКА.
-- The new silhouette has a narrow waist, fuller rounded ends and slight asymmetry, so it reads much closer to an astragalus bone while remaining very light for mobile.
-- Physics stays `CONVEX_HULL`: one collider per physical piece. Decorative details are children and do not complicate Havok collisions.
-- Regular чүкө now use warm bone/wood-like PBR materials instead of white test material.
-- ХАН is larger and gold, with a dark enamel-like top insert and a gold crest.
-- САКА is larger, deep blue and glossy, with simple gold decorative details based on the approved blue/gold visual direction.
-- Added ACES tone mapping, slightly warmer directional light, improved contrast and a subtle inset playing surface.
-- Shadows remain mobile-friendly; no heavy textures, HDR environment or GLB assets yet.
-- **Aiming, ballistic arc, impact boost and scatter values from v0.5 are intentionally preserved.**
+- 12 чүкө, ХАН и САКА теперь создаются **один раз** при старте сцены.
+- При «Ещё бросок» больше не выполняются `dispose()` + повторное создание mesh/material/`PhysicsAggregate`/`CONVEX_HULL`.
+- Объекты переиспользуются: обнуляются скорости, временно переводятся в STATIC, телепортируются в новую раскладку и затем снова активируются.
+- Для корректной синхронизации transform → Havok на один кадр включается physics prestep, после чего он снова отключается ради производительности.
+- Список shadow casters также не перестраивается на каждом раунде.
+- Геометрия, материалы, физика удара, траектория и управление сохранены от v0.6.
+- В консоль выводится время JS-части reset: `[CHUKO 0.6.1] pooled reset ... ms`.
 
-## What to check on iPhone
+## Что проверяем на iPhone
 
-1. FPS: target is still ~60 FPS.
-2. Make sure the new organic pieces look clearly better than the pearl/blob shapes from v0.5.
-3. Check whether ХАН is immediately distinguishable inside the pile.
-4. Check whether blue/gold САКА remains easy to see at the start and during aiming.
-5. Confirm that aiming accuracy, arc and scatter feel the same as v0.5.
-6. Watch the FPS specifically during impact, when all bodies tumble and shadows move at once.
+1. FPS при нажатии **«Ещё бросок»**.
+2. Правильно ли мгновенно собирается новая кучка.
+3. Нет ли рывка/телепорта старых чүкө на один кадр.
+4. САКА остаётся в правильной стартовой позиции, траектория видна.
+5. После броска физика и дальность разлёта не изменились.
 
-## Performance strategy
-
-The visual mesh is intentionally low-poly on mobile:
-
-- 8 longitudinal rings × 14 radial segments per organic body on mobile;
-- 11 × 18 on desktop;
-- one `CONVEX_HULL` physics body per piece;
-- 512 px shadow map on mobile;
-- no real-time reflections / HDR / SSAO / post-processing stack;
-- device pixel ratio remains capped at 1.45× with the existing automatic fallback.
-
-These values can be adjusted in `src/config.js -> visual` after the iPhone test.
-
-## Still intentionally excluded
-
-- LMS / tickets / balance;
-- scenario-controlled result layer;
-- payout UI and autoplay;
-- final artist-made GLB/GLTF models and final textures;
-- final field/environment / Kyrgyz landscape;
-- sound/music.
-
-If Safari caches an older build, open the page with `?v=06`.
+Цель: убрать или уменьшить короткую просадку 57–58 FPS перед переходом к v0.7 с более красивым окружением.

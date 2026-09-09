@@ -1,4 +1,4 @@
-# ЧҮКӨ v20.61 -> Modern 3D v0.6 reference
+# ЧҮКӨ v20.61 -> Modern 3D v0.6.1 reference
 
 The 2D v20.61 build remains the mechanical reference. Modern 3D replaces Pixi/Matter movement with Babylon.js + Havok while preserving the approved interaction principles.
 

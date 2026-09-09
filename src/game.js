@@ -34,6 +34,11 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
+  // v0.6.1: dynamic round objects are created once and reused on every reset.
+  // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
+  const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
+  let prestepRestoreScheduled = false;
+  const prestepRestoreQueue = [];
 
   function showFatal(error) {
     console.error(error);
@@ -369,16 +374,101 @@
     return { mesh, aggregate };
   }
 
-  function clearRoundBodies() {
-    window.clearTimeout(resetTimer);
-    resetTimer = 0;
-    for (const item of bodies.filter(x => !x.permanent)) {
-      try { item.aggregate?.dispose(); } catch (_) {}
-      try { item.mesh?.dispose(false, true); } catch (_) {}
+  // v0.6.1 pooling/reset -------------------------------------------------------
+  // Havok convex hull construction is relatively expensive compared with simply
+  // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
+  // once, keep their PhysicsAggregates alive and only reset their transforms.
+  function queueBodyTransformReset(item, position, rotationQuaternion, activateAfterSync) {
+    if (!item?.aggregate?.body || !item?.mesh) return;
+    const body = item.aggregate.body;
+
+    // Freeze first so the previous round cannot add another impulse while the body
+    // is being teleported. Havok's mesh->body prestep sync is normally disabled
+    // for performance, so enable it for exactly one frame.
+    body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+    body.setLinearVelocity(BABYLON.Vector3.Zero());
+    body.setAngularVelocity(BABYLON.Vector3.Zero());
+    body.disablePreStep = false;
+
+    item.mesh.position.copyFrom(position);
+    item.mesh.rotationQuaternion = rotationQuaternion.clone();
+    item.mesh.computeWorldMatrix(true);
+
+    prestepRestoreQueue.push({ body, activateAfterSync });
+    if (!prestepRestoreScheduled) {
+      prestepRestoreScheduled = true;
+      scene.onAfterRenderObservable.addOnce(() => {
+        const queue = prestepRestoreQueue.splice(0);
+        prestepRestoreScheduled = false;
+        for (const entry of queue) {
+          try {
+            entry.body.disablePreStep = true;
+            if (entry.activateAfterSync) {
+              entry.body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+              entry.body.setLinearVelocity(BABYLON.Vector3.Zero());
+              entry.body.setAngularVelocity(BABYLON.Vector3.Zero());
+            }
+          } catch (_) {}
+        }
+      });
     }
-    bodies = bodies.filter(x => x.permanent);
-    saka = null;
-    sakaAggregate = null;
+  }
+
+  function ensureRoundPool() {
+    if (roundPool.initialized) return;
+
+    const chukoColors = [
+      new BABYLON.Color3(0.78,0.56,0.30),
+      new BABYLON.Color3(0.70,0.47,0.24),
+      new BABYLON.Color3(0.86,0.64,0.36)
+    ];
+
+    const d = C.pieces.chuko;
+    for (let i = 0; i < C.pile.chukoCount; i++) {
+      const item = createPiece(
+        `chuko-${i+1}`,
+        d,
+        new BABYLON.Vector3(0, 4 + i * 0.03, 0),
+        chukoColors[i % chukoColors.length],
+        false,
+        0
+      );
+      roundPool.chukos.push(item);
+    }
+
+    const kd = C.pieces.khan;
+    roundPool.khan = createPiece(
+      'KHAN',
+      kd,
+      new BABYLON.Vector3(0, 4.8, 0),
+      new BABYLON.Color3(0.63, 0.30, 0.035),
+      true,
+      0
+    );
+
+    const sd = C.pieces.saka;
+    const sakaMat = material('saka-mat', new BABYLON.Color3(0.018, 0.16, 0.62), 0.20, 0.54);
+    sakaMat.clearCoat.isEnabled = true;
+    sakaMat.clearCoat.intensity = 0.78;
+    sakaMat.clearCoat.roughness = 0.19;
+    const sakaMesh = makeSakaBone('SAKA', sd, sakaMat);
+    sakaMesh.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+    sakaMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12);
+    addShadow(sakaMesh);
+    const aggregate = new BABYLON.PhysicsAggregate(
+      sakaMesh,
+      BABYLON.PhysicsShapeType.CONVEX_HULL,
+      {
+        mass: sd.mass,
+        friction: C.physics.sakaFriction,
+        restitution: C.physics.sakaRestitution
+      },
+      scene
+    );
+    bodies.push({ mesh: sakaMesh, aggregate, role: 'saka' });
+    roundPool.saka = { mesh: sakaMesh, aggregate };
+
+    roundPool.initialized = true;
   }
 
   function pilePositions() {
@@ -393,24 +483,22 @@
   }
 
   function resetRound() {
-    clearRoundBodies();
+    const resetStartedAt = performance.now();
+    window.clearTimeout(resetTimer);
+    resetTimer = 0;
+    ensureRoundPool();
+
     thrown = false;
     roundIndex++;
     roundSeed = roundIndex * 7919 + 17;
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.6 · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.6.1 · pooled reset · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
     if (ui.aimPower) ui.aimPower.hidden = true;
-
-    const chukoColors = [
-      new BABYLON.Color3(0.78,0.56,0.30),
-      new BABYLON.Color3(0.70,0.47,0.24),
-      new BABYLON.Color3(0.86,0.64,0.36)
-    ];
 
     const positions = pilePositions();
     const d = C.pieces.chuko;
@@ -418,65 +506,55 @@
       const jitter = C.pile.positionJitter;
       const x = px + (Math.random() - 0.5) * jitter * 2;
       const z = C.pile.offsetZ + pz + (Math.random() - 0.5) * jitter * 2;
-      // Alternating directions make the pile look irregular without spawning overlaps.
       const yaw = (i % 2 ? 0.78 : -0.72) + (i % 4 - 1.5) * 0.10;
       const lift = (i % 5 === 0 || i % 7 === 0) ? C.pile.stackLift : 0;
-      createPiece(
-        `chuko-${i+1}`,
-        d,
+      const rot = BABYLON.Quaternion.FromEulerAngles(
+        (Math.random() - 0.5) * C.pile.angleJitter,
+        yaw + (Math.random() - 0.5) * C.pile.angleJitter,
+        (Math.random() - 0.5) * C.pile.angleJitter
+      );
+      queueBodyTransformReset(
+        roundPool.chukos[i],
         new BABYLON.Vector3(x, d.height * 0.58 + lift, z),
-        chukoColors[i % chukoColors.length],
-        false,
-        yaw
+        rot,
+        true
       );
     });
 
-    // KHAN now lies in the empty centre of the 12-piece layout.
     const kd = C.pieces.khan;
-    createPiece(
-      'KHAN',
-      kd,
+    queueBodyTransformReset(
+      roundPool.khan,
       new BABYLON.Vector3(0.0, kd.height * 0.54, C.pile.offsetZ - 0.01),
-      new BABYLON.Color3(0.63, 0.30, 0.035),
-      true,
-      0.58
+      BABYLON.Quaternion.FromEulerAngles(
+        (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
+        0.58 + (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
+        (Math.random() - 0.5) * C.pile.angleJitter * 0.45
+      ),
+      true
     );
 
-    const sd = C.pieces.saka;
-    const sakaMat = material('saka-mat', new BABYLON.Color3(0.018, 0.16, 0.62), 0.20, 0.54);
-    sakaMat.clearCoat.isEnabled = true;
-    sakaMat.clearCoat.intensity = 0.78;
-    sakaMat.clearCoat.roughness = 0.19;
-    saka = makeSakaBone('SAKA', sd, sakaMat);
-    saka.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
-    saka.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12);
-    addShadow(saka);
-
-    // v0.3: SAKA also uses an irregular convex hull. With only 14 dynamic bodies
-    // this should still be cheap enough; FPS panel remains our acceptance test.
-    sakaAggregate = new BABYLON.PhysicsAggregate(
-      saka,
-      BABYLON.PhysicsShapeType.CONVEX_HULL,
-      {
-        mass: sd.mass,
-        friction: C.physics.sakaFriction,
-        restitution: C.physics.sakaRestitution
-      },
-      scene
+    saka = roundPool.saka.mesh;
+    sakaAggregate = roundPool.saka.aggregate;
+    queueBodyTransformReset(
+      roundPool.saka,
+      new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z),
+      BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12),
+      false
     );
-    bodies.push({ mesh: saka, aggregate: sakaAggregate, role: 'saka' });
 
-    sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
     updateBodyCount();
 
-    // v0.4.1: keep a visible default trajectory on screen before the user touches SAKA.
-    // This also makes it obvious where to drag on mobile.
+    // Keep the visible default trajectory before the user touches SAKA.
     const defaultGeo = aimGeometry();
     const defaultPoint = { x: defaultGeo.center.x, z: defaultGeo.center.z };
     aimState.power = 0.58;
     aimState.guideDir = defaultGeo.toCenter;
     aimState.targetPoint = defaultPoint;
     updateAimVisuals(defaultPoint, 0.58);
+
+    // Useful while profiling on iPhone: this measures JS reset work only.
+    const resetMs = performance.now() - resetStartedAt;
+    console.debug(`[CHUKO 0.6.1] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -835,7 +913,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.6 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.6.1 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -912,7 +990,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.6 · разлёт + верхняя дуга · «Ещё бросок» соберёт кучку';
+      ui.hint.textContent = 'v0.6.1 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
