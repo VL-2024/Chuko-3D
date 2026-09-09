@@ -8,8 +8,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · prototype 0.8.5</title>
-  <link rel="stylesheet" href="styles.css?v=0.8.5" />
+  <title>ЧҮКӨ Modern 3D · prototype 0.8.6</title>
+  <link rel="stylesheet" href="styles.css?v=0.8.6" />
 </head>
 <body>
   <main id="app">
@@ -22,7 +22,7 @@
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
 
     <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.8.5</em></div>
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.8.6</em></div>
       <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
     </header>
 
@@ -35,6 +35,101 @@
 
     <section class="hint" id="hint">Потяните САКА назад и отпустите</section>
     <section class="aim-power" id="aimPower" hidden>СИЛА <strong>0%</strong></section>
+
+
+    <button id="tuneBtn" class="tune-btn" type="button" aria-expanded="false">⚙ НАСТРОЙКА</button>
+
+    <aside id="tunePanel" class="tune-panel" hidden aria-label="Настройка композиции">
+      <div class="tune-head">
+        <div>
+          <strong>Подгонка экрана</strong>
+          <span>Значения сохраняются на этом устройстве</span>
+        </div>
+        <button id="tuneCloseBtn" type="button" class="tune-close">×</button>
+      </div>
+
+      <section class="tune-group">
+        <h3>ФОН И ПОЛЕ</h3>
+        <label class="tune-row">
+          <span>Размер поля <output data-out="fieldWidth"></output></span>
+          <input type="range" min="88" max="116" step="1" data-tune="fieldWidth">
+        </label>
+        <label class="tune-row">
+          <span>Поле выше / ниже <output data-out="fieldBottom"></output></span>
+          <input type="range" min="90" max="280" step="2" data-tune="fieldBottom">
+        </label>
+        <label class="tune-row">
+          <span>Поле влево / вправо <output data-out="fieldX"></output></span>
+          <input type="range" min="-90" max="90" step="2" data-tune="fieldX">
+        </label>
+        <label class="tune-row">
+          <span>Масштаб фона <output data-out="bgScale"></output></span>
+          <input type="range" min="0.92" max="1.28" step="0.01" data-tune="bgScale">
+        </label>
+        <label class="tune-row">
+          <span>Фон выше / ниже <output data-out="bgY"></output></span>
+          <input type="range" min="-140" max="140" step="2" data-tune="bgY">
+        </label>
+        <label class="tune-row">
+          <span>Фон влево / вправо <output data-out="bgX"></output></span>
+          <input type="range" min="-100" max="100" step="2" data-tune="bgX">
+        </label>
+      </section>
+
+      <section class="tune-group">
+        <h3>КУЧКА ЧҮКӨ</h3>
+        <label class="tune-row">
+          <span>Кучка влево / вправо <output data-out="pileX"></output></span>
+          <input type="range" min="-0.80" max="0.80" step="0.02" data-tune="pileX">
+        </label>
+        <label class="tune-row">
+          <span>Кучка вперёд / назад <output data-out="pileZ"></output></span>
+          <input type="range" min="-1.00" max="0.55" step="0.02" data-tune="pileZ">
+        </label>
+        <label class="tune-row">
+          <span>Ширина кучки <output data-out="spreadX"></output></span>
+          <input type="range" min="0.38" max="1.00" step="0.02" data-tune="spreadX">
+        </label>
+        <label class="tune-row">
+          <span>Глубина кучки <output data-out="spreadZ"></output></span>
+          <input type="range" min="0.26" max="0.82" step="0.02" data-tune="spreadZ">
+        </label>
+      </section>
+
+      <section class="tune-group">
+        <h3>3D КАМЕРА</h3>
+        <label class="tune-row">
+          <span>Общий размер 3D <output data-out="cameraRadius"></output></span>
+          <input type="range" min="7.40" max="10.60" step="0.05" data-tune="cameraRadius">
+        </label>
+        <label class="tune-row">
+          <span>3D влево / вправо <output data-out="cameraTargetX"></output></span>
+          <input type="range" min="-0.80" max="0.80" step="0.02" data-tune="cameraTargetX">
+        </label>
+        <label class="tune-row">
+          <span>3D вперёд / назад <output data-out="cameraTargetZ"></output></span>
+          <input type="range" min="-0.80" max="0.80" step="0.02" data-tune="cameraTargetZ">
+        </label>
+      </section>
+
+      <section class="tune-group">
+        <h3>САКА</h3>
+        <label class="tune-row">
+          <span>САКА влево / вправо <output data-out="sakaX"></output></span>
+          <input type="range" min="-0.30" max="1.60" step="0.02" data-tune="sakaX">
+        </label>
+        <label class="tune-row">
+          <span>САКА ближе / дальше <output data-out="sakaZ"></output></span>
+          <input type="range" min="2.10" max="3.80" step="0.02" data-tune="sakaZ">
+        </label>
+      </section>
+
+      <div class="tune-actions">
+        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.8.6</button>
+        <button id="tuneCopyBtn" type="button">КОПИРОВАТЬ ПАРАМЕТРЫ</button>
+      </div>
+      <textarea id="tuneOutput" class="tune-output" readonly rows="5" aria-label="Текущие параметры"></textarea>
+    </aside>
 
     <footer class="controls bottom-safe">
       <button id="throwBtn" class="primary">БРОСИТЬ САКА</button>
@@ -50,7 +145,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.8.5"></script>
-  <script src="src/game.js?v=0.8.5"></script>
+  <script src="src/config.js?v=0.8.6"></script>
+  <script src="src/game.js?v=0.8.6"></script>
 </body>
 </html>

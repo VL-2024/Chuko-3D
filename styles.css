@@ -9,8 +9,8 @@ html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; backg
 body { overscroll-behavior: none; }
 #app { position: relative; isolation: isolate; }
 .art-stack { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: #000; }
-.bg-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; }
-.field-photo { position: absolute; left: 50%; bottom: calc(162px + var(--safe-bottom)); transform: translateX(-50%); width: min(102vw, 680px); max-width: none; height: auto; }
+.bg-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; transform: translate(var(--bg-x, 0px), var(--bg-y, 0px)) scale(var(--bg-scale, 1)); transform-origin: 50% 50%; }
+.field-photo { position: absolute; left: 50%; bottom: calc(var(--field-bottom, 162px) + var(--safe-bottom)); transform: translateX(-50%); margin-left: var(--field-x, 0px); width: min(var(--field-width, 102vw), 680px); max-width: none; height: auto; }
 .art-vignette { position: absolute; inset: 0; background:
   linear-gradient(180deg, rgba(4,10,16,.34), rgba(4,10,16,0) 18%),
   linear-gradient(0deg, rgba(3,11,15,.50), rgba(3,11,15,0) 18%);
@@ -45,4 +45,38 @@ button:disabled { opacity: .42; cursor: default; }
   .hint { bottom: 18px; left: 24px; transform: none; width: min(45vw, 430px); text-align: left; }
   .perf { top: calc(48px + var(--safe-top)); }
   .aim-power { left: 24px; bottom: 54px; transform: none; }
+}
+
+
+.tune-btn {
+  position: fixed; z-index: 30; left: 12px; top: calc(62px + var(--safe-top));
+  min-height: 36px; padding: 0 10px; border-radius: 10px;
+  font-size: 10px; letter-spacing: .05em; color: #fff;
+  background: rgba(3,12,16,.72); border: 1px solid rgba(255,255,255,.18);
+  backdrop-filter: blur(9px);
+}
+.tune-panel {
+  position: fixed; z-index: 29; top: calc(104px + var(--safe-top)); left: 8px; right: 8px;
+  max-height: calc(100% - 250px - var(--safe-top) - var(--safe-bottom));
+  overflow: auto; overscroll-behavior: contain;
+  padding: 12px; border-radius: 16px; color: #fff;
+  background: rgba(5,12,16,.94); border: 1px solid rgba(255,255,255,.16);
+  backdrop-filter: blur(14px);
+  -webkit-overflow-scrolling: touch;
+}
+.tune-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.tune-head strong { display: block; font-size: 14px; }
+.tune-head span { display: block; margin-top: 2px; opacity: .62; font-size: 10px; }
+.tune-close { flex: 0 0 40px; min-height: 40px; padding: 0; color: #fff; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.12); font-size: 24px; }
+.tune-group { padding: 9px 0 4px; border-top: 1px solid rgba(255,255,255,.10); }
+.tune-group h3 { margin: 0 0 6px; font-size: 10px; letter-spacing: .12em; opacity: .66; }
+.tune-row { display: block; padding: 5px 0; }
+.tune-row > span { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 3px; font-size: 11px; }
+.tune-row output { color: #e4ee3e; font-weight: 800; font-variant-numeric: tabular-nums; }
+.tune-row input[type="range"] { width: 100%; min-height: 28px; margin: 0; accent-color: #e4ee3e; touch-action: pan-x; }
+.tune-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
+.tune-actions button { min-height: 42px; padding: 0 8px; font-size: 9px; color: #fff; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.13); }
+.tune-output { width: 100%; margin-top: 8px; padding: 8px; resize: none; border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.30); color: rgba(255,255,255,.78); font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+@media (min-width: 760px) {
+  .tune-panel { left: 12px; right: auto; width: 390px; max-height: calc(100% - 150px); }
 }

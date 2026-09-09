@@ -14,7 +14,13 @@
     hint: document.getElementById('hint'),
     aimPower: document.getElementById('aimPower'),
     fatal: document.getElementById('fatal'),
-    fatalText: document.getElementById('fatalText')
+    fatalText: document.getElementById('fatalText'),
+    tuneBtn: document.getElementById('tuneBtn'),
+    tunePanel: document.getElementById('tunePanel'),
+    tuneCloseBtn: document.getElementById('tuneCloseBtn'),
+    tuneDefaultsBtn: document.getElementById('tuneDefaultsBtn'),
+    tuneCopyBtn: document.getElementById('tuneCopyBtn'),
+    tuneOutput: document.getElementById('tuneOutput')
   };
 
   let engine;
@@ -34,11 +40,173 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.4: dynamic round objects are created once and reused on every reset.
+  // v0.8.6: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
+
+  const TUNE_STORAGE_KEY = 'chuko3d-v086-tuning';
+  const TUNE_DEFAULTS = Object.freeze({
+    fieldWidth: 102,
+    fieldBottom: 162,
+    fieldX: 0,
+    bgScale: 1.00,
+    bgX: 0,
+    bgY: 0,
+    pileX: 0.00,
+    pileZ: -0.24,
+    spreadX: 0.60,
+    spreadZ: 0.44,
+    cameraRadius: isMobile() ? 8.45 : 8.00,
+    cameraTargetX: 0.00,
+    cameraTargetZ: 0.04,
+    sakaX: 0.72,
+    sakaZ: 2.85
+  });
+
+  function loadTuning() {
+    try {
+      const raw = localStorage.getItem(TUNE_STORAGE_KEY);
+      if (!raw) return { ...TUNE_DEFAULTS };
+      const parsed = JSON.parse(raw);
+      return { ...TUNE_DEFAULTS, ...parsed };
+    } catch (_) {
+      return { ...TUNE_DEFAULTS };
+    }
+  }
+
+  let tuning = loadTuning();
+  let tuningResetTimer = 0;
+
+  function saveTuning() {
+    try { localStorage.setItem(TUNE_STORAGE_KEY, JSON.stringify(tuning)); } catch (_) {}
+  }
+
+  function throwStartPoint() {
+    return { x: Number(tuning.sakaX), y: C.throw.start.y, z: Number(tuning.sakaZ) };
+  }
+
+  function applyDomTuning() {
+    const root = document.documentElement;
+    root.style.setProperty('--field-width', `${Number(tuning.fieldWidth)}vw`);
+    root.style.setProperty('--field-bottom', `${Number(tuning.fieldBottom)}px`);
+    root.style.setProperty('--field-x', `${Number(tuning.fieldX)}px`);
+    root.style.setProperty('--bg-scale', String(Number(tuning.bgScale)));
+    root.style.setProperty('--bg-x', `${Number(tuning.bgX)}px`);
+    root.style.setProperty('--bg-y', `${Number(tuning.bgY)}px`);
+  }
+
+  function applyCameraTuning() {
+    const camera = scene?.activeCamera;
+    if (!camera) return;
+    if (typeof camera.radius === 'number') camera.radius = Number(tuning.cameraRadius);
+    if (camera.target?.set) {
+      camera.target.set(
+        Number(tuning.cameraTargetX),
+        C.camera.target.y,
+        Number(tuning.cameraTargetZ)
+      );
+    }
+  }
+
+  function tuningAffectsRound(key) {
+    return ['pileX','pileZ','spreadX','spreadZ','sakaX','sakaZ'].includes(key);
+  }
+
+  function scheduleTuningRoundReset() {
+    window.clearTimeout(tuningResetTimer);
+    tuningResetTimer = window.setTimeout(() => {
+      if (scene && roundPool.initialized) resetRound();
+    }, 90);
+  }
+
+  function tuneNumberLabel(key, value) {
+    const v = Number(value);
+    if (['fieldWidth'].includes(key)) return `${Math.round(v)}vw`;
+    if (['fieldBottom','fieldX','bgX','bgY'].includes(key)) return `${Math.round(v)}px`;
+    if (key === 'bgScale') return `${v.toFixed(2)}×`;
+    if (key === 'cameraRadius') return v.toFixed(2);
+    return v.toFixed(2);
+  }
+
+  function refreshTuneUi() {
+    document.querySelectorAll('[data-tune]').forEach(input => {
+      const key = input.dataset.tune;
+      if (!(key in tuning)) return;
+      input.value = String(tuning[key]);
+      const out = document.querySelector(`[data-out="${key}"]`);
+      if (out) out.textContent = tuneNumberLabel(key, tuning[key]);
+    });
+    if (ui.tuneOutput) {
+      ui.tuneOutput.value = JSON.stringify(tuning, null, 2);
+    }
+  }
+
+  function setTunePanelOpen(open) {
+    if (!ui.tunePanel || !ui.tuneBtn) return;
+    ui.tunePanel.hidden = !open;
+    ui.tuneBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    ui.tuneBtn.textContent = open ? '⚙ ЗАКРЫТЬ' : '⚙ НАСТРОЙКА';
+  }
+
+  async function copyTuning() {
+    const text = JSON.stringify(tuning, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      if (ui.tuneCopyBtn) {
+        const old = ui.tuneCopyBtn.textContent;
+        ui.tuneCopyBtn.textContent = 'СКОПИРОВАНО';
+        window.setTimeout(() => { ui.tuneCopyBtn.textContent = old; }, 1200);
+      }
+    } catch (_) {
+      if (ui.tuneOutput) {
+        ui.tuneOutput.focus();
+        ui.tuneOutput.select();
+      }
+    }
+  }
+
+  function bindTuner() {
+    applyDomTuning();
+    refreshTuneUi();
+
+    ui.tuneBtn?.addEventListener('click', () => {
+      setTunePanelOpen(ui.tunePanel?.hidden ?? true);
+    });
+    ui.tuneCloseBtn?.addEventListener('click', () => setTunePanelOpen(false));
+
+    document.querySelectorAll('[data-tune]').forEach(input => {
+      input.addEventListener('input', () => {
+        const key = input.dataset.tune;
+        const min = Number(input.min);
+        const max = Number(input.max);
+        let value = Number(input.value);
+        if (Number.isFinite(min)) value = Math.max(min, value);
+        if (Number.isFinite(max)) value = Math.min(max, value);
+        tuning[key] = value;
+        saveTuning();
+        applyDomTuning();
+        applyCameraTuning();
+        const out = document.querySelector(`[data-out="${key}"]`);
+        if (out) out.textContent = tuneNumberLabel(key, value);
+        if (ui.tuneOutput) ui.tuneOutput.value = JSON.stringify(tuning, null, 2);
+        if (tuningAffectsRound(key)) scheduleTuningRoundReset();
+      });
+    });
+
+    ui.tuneDefaultsBtn?.addEventListener('click', () => {
+      tuning = { ...TUNE_DEFAULTS };
+      saveTuning();
+      applyDomTuning();
+      applyCameraTuning();
+      refreshTuneUi();
+      scheduleTuningRoundReset();
+    });
+    ui.tuneCopyBtn?.addEventListener('click', copyTuning);
+  }
+
+  applyDomTuning();
 
   function showFatal(error) {
     console.error(error);
@@ -255,7 +423,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.4: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.6: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -268,8 +436,8 @@
       'camera',
       C.camera.alpha,
       isMobile() ? C.camera.betaMobile : C.camera.betaDesktop,
-      isMobile() ? C.camera.radiusMobile : C.camera.radiusDesktop,
-      new BABYLON.Vector3(C.camera.target.x, C.camera.target.y, C.camera.target.z),
+      Number(tuning.cameraRadius),
+      new BABYLON.Vector3(Number(tuning.cameraTargetX), C.camera.target.y, Number(tuning.cameraTargetZ)),
       scene
     );
     camera.lowerRadiusLimit = 7.2;
@@ -369,7 +537,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.4 pooling/reset -------------------------------------------------------
+  // v0.8.6 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -447,7 +615,7 @@
     sakaMat.clearCoat.intensity = 0.78;
     sakaMat.clearCoat.roughness = 0.19;
     const sakaMesh = makeSakaBone('SAKA', sd, sakaMat);
-    sakaMesh.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+    { const start = throwStartPoint(); sakaMesh.position.set(start.x, start.y, start.z); }
     sakaMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12);
     addShadow(sakaMesh);
     const aggregate = new BABYLON.PhysicsAggregate(
@@ -468,8 +636,8 @@
 
   function pilePositions() {
     // World-space analogue of the approved compact v20.61 4×3 layout.
-    const sx = C.pile.spreadX;
-    const sz = C.pile.spreadZ;
+    const sx = Number(tuning.spreadX);
+    const sz = Number(tuning.spreadZ);
     return [
       [-0.86*sx,-0.56*sz],[-0.29*sx,-0.68*sz],[ 0.29*sx,-0.68*sz],[ 0.86*sx,-0.56*sz],
       [-1.02*sx,-0.03*sz],[-0.48*sx,-0.02*sz],[ 0.48*sx,-0.02*sz],[ 1.02*sx,-0.03*sz],
@@ -489,7 +657,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.4 · pooled reset · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.6 · настройте композицию ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -499,8 +667,8 @@
     const d = C.pieces.chuko;
     positions.forEach(([px, pz], i) => {
       const jitter = C.pile.positionJitter;
-      const x = px + (Math.random() - 0.5) * jitter * 2;
-      const z = C.pile.offsetZ + pz + (Math.random() - 0.5) * jitter * 2;
+      const x = Number(tuning.pileX) + px + (Math.random() - 0.5) * jitter * 2;
+      const z = Number(tuning.pileZ) + pz + (Math.random() - 0.5) * jitter * 2;
       const yaw = (i % 2 ? 0.78 : -0.72) + (i % 4 - 1.5) * 0.10;
       const lift = (i % 5 === 0 || i % 7 === 0) ? C.pile.stackLift : 0;
       const rot = BABYLON.Quaternion.FromEulerAngles(
@@ -519,7 +687,7 @@
     const kd = C.pieces.khan;
     queueBodyTransformReset(
       roundPool.khan,
-      new BABYLON.Vector3(0.0, kd.height * 0.54, C.pile.offsetZ - 0.01),
+      new BABYLON.Vector3(Number(tuning.pileX), kd.height * 0.54, Number(tuning.pileZ) - 0.01),
       BABYLON.Quaternion.FromEulerAngles(
         (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
         0.58 + (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
@@ -532,7 +700,7 @@
     sakaAggregate = roundPool.saka.aggregate;
     queueBodyTransformReset(
       roundPool.saka,
-      new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z),
+      (() => { const s = throwStartPoint(); return new BABYLON.Vector3(s.x, s.y, s.z); })(),
       BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12),
       false
     );
@@ -549,7 +717,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.2] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.6] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -612,8 +780,9 @@
   }
 
   function aimGeometry() {
-    const origin = { x: C.throw.start.x, z: C.throw.start.z };
-    const center = { x: 0, z: C.pile.offsetZ };
+    const start = throwStartPoint();
+    const origin = { x: start.x, z: start.z };
+    const center = { x: Number(tuning.pileX), z: Number(tuning.pileZ) };
     const radius = C.throw.aimRadius;
     const toCenter = normalize2(center.x - origin.x, center.z - origin.z);
     const distance = Math.hypot(center.x - origin.x, center.z - origin.z);
@@ -712,7 +881,8 @@
 
   function updateAimVisuals(target2, power) {
     if (!saka || !aimDots.length) return;
-    const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+    const s0 = throwStartPoint();
+    const start = new BABYLON.Vector3(s0.x, s0.y, s0.z);
     const target = new BABYLON.Vector3(target2.x, C.throw.targetY, target2.z);
     const ballistic = ballisticForApex(start, target, power);
     const flightTime = ballistic.flightTime;
@@ -831,9 +1001,9 @@
     // Visual pull of SAKA opposite to the actual throw direction.
     const pullWorld = C.throw.sakaPullWorld * power;
     saka.position.set(
-      C.throw.start.x - guideDir.x * pullWorld,
+      throwStartPoint().x - guideDir.x * pullWorld,
       C.throw.start.y + 0.025 * power,
-      C.throw.start.z - guideDir.z * pullWorld
+      throwStartPoint().z - guideDir.z * pullWorld
     );
 
     if (ui.aimPower) {
@@ -902,13 +1072,13 @@
       if (aimState.dragging && aimState.pointerId === e.pointerId) {
         aimState.dragging = false;
         aimState.pointerId = null;
-        saka?.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+        { const s = throwStartPoint(); saka?.position.set(s.x, s.y, s.z); }
         const geo = aimGeometry();
         const defaultPoint = { x: geo.center.x, z: geo.center.z };
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.4 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.6 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -954,7 +1124,8 @@
     }
 
     const target = new BABYLON.Vector3(landingPoint.x, C.throw.targetY, landingPoint.z);
-    const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+    const s0 = throwStartPoint();
+    const start = new BABYLON.Vector3(s0.x, s0.y, s0.z);
     const ballistic = ballisticForApex(start, target, power);
 
     throwState = {
@@ -985,7 +1156,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.4 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
+      ui.hint.textContent = 'v0.8.6 · настройте композицию ⚙ · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
@@ -1111,6 +1282,8 @@
     await initPhysics();
     createEnvironment();
     createAimVisuals();
+    bindTuner();
+    applyCameraTuning();
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
