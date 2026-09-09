@@ -41,13 +41,13 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.12: dynamic round objects are created once and reused on every reset.
+  // v0.8.13: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0812-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0813-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 264,
@@ -121,20 +121,31 @@
   function releasePileIfImpactIsImminent() {
     if (pileReleasedForThrow || !throwState.active || !saka || !sakaAggregate || !throwState.targetPoint) return;
 
-    const tp = throwState.targetPoint;
-    const dx = saka.position.x - tp.x;
-    const dz = saka.position.z - tp.z;
-    const horizontalDistance = Math.hypot(dx, dz);
     const velocity = readLinearVelocity(sakaAggregate.body);
+    if (velocity.y >= -0.20) return; // only while descending
 
-    // Release only when SAKA is descending and is physically almost at the pile.
-    // This avoids any visible pre-impact spreading while still giving Havok one frame
-    // to resolve the real collision dynamically.
-    const nearHorizontally = horizontalDistance <= 0.24;
-    const lowEnough = saka.position.y <= 0.46;
-    const descending = velocity.y < -0.35;
+    // Measure the real distance to the nearest visible pile piece instead of relying
+    // only on the intended landing point. This is robust even when the player aims
+    // between two pieces or at the edge of the compact pile.
+    let nearest3D = Infinity;
+    const items = [...roundPool.chukos, roundPool.khan].filter(Boolean);
+    for (const item of items) {
+      const mesh = item?.mesh;
+      if (!mesh) continue;
+      const dx = saka.position.x - mesh.position.x;
+      const dy = saka.position.y - mesh.position.y;
+      const dz = saka.position.z - mesh.position.z;
+      nearest3D = Math.min(nearest3D, Math.hypot(dx, dy, dz));
+    }
 
-    if (!nearHorizontally || !lowEnough || !descending) return;
+    const tp = throwState.targetPoint;
+    const targetHorizontal = Math.hypot(saka.position.x - tp.x, saka.position.z - tp.z);
+
+    // About one collision-frame before contact for the current SAKA/chuko dimensions.
+    // Fallback target check prevents missing the release if SAKA is aimed into a gap.
+    const nearRealPiece = nearest3D <= 0.64;
+    const nearTarget = saka.position.y <= 0.66 && targetHorizontal <= 0.38;
+    if (!nearRealPiece && !nearTarget) return;
 
     setPileBodiesMotionDynamic();
     pileReleasedForThrow = true;
@@ -478,7 +489,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.12: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.13: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -592,7 +603,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.12 pooling/reset -------------------------------------------------------
+  // v0.8.13 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -716,7 +727,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.12 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.13 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -778,7 +789,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.12] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.13] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1139,7 +1150,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.12 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.13 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1220,7 +1231,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.12 · кучка не должна расходиться до контакта ⚙';
+      ui.hint.textContent = 'v0.8.13 · кучка отпускается в кадр перед контактом ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1249,14 +1260,12 @@
     if (!cfg?.enabled || !throwState.active || throwState.impactBoosted || !saka || !throwState.targetPoint || !pileReleasedForThrow) return;
 
     const tp = throwState.targetPoint;
-    const dx = saka.position.x - tp.x;
-    const dz = saka.position.z - tp.z;
-    const horizontalDistance = Math.hypot(dx, dz);
-    if (saka.position.y > Number(cfg.triggerHeight || 0.72) || horizontalDistance > Number(cfg.triggerRadius || 0.48)) return;
-
     const sakaVelocity = readLinearVelocity(sakaAggregate?.body);
     if (sakaVelocity.y > 0.15) return;
 
+    // The pile was released by real proximity, so apply the controlled impact boost
+    // immediately in the same render frame. This restores visible scatter without
+    // allowing the pile time to drift apart before SAKA arrives.
     throwState.impactBoosted = true;
     const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
     const radialSpeed = Math.max(0, Number(cfg.radialSpeed || 4.35));
@@ -1287,7 +1296,7 @@
       );
       item.aggregate.body.setLinearVelocity(current.add(added));
 
-      const spin = 8.0 + 6.0 * falloff;
+      const spin = 6.5 + 4.5 * falloff;
       item.aggregate.body.setAngularVelocity(new BABYLON.Vector3(
         seededNoise(index + 71) * spin,
         seededNoise(index + 89) * spin * 0.65,
