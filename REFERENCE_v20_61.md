@@ -1,34 +1,35 @@
-# ЧҮКӨ v20.61 -> Modern 3D v0.5 reference
+# ЧҮКӨ v20.61 -> Modern 3D v0.6 reference
 
-The 2D v20.61 build remains the mechanical reference, but this prototype replaces Pixi/Matter movement with Babylon.js + Havok 3D physics.
+The 2D v20.61 build remains the mechanical reference. Modern 3D replaces Pixi/Matter movement with Babylon.js + Havok while preserving the approved interaction principles.
 
-## Already carried over conceptually
+## Mechanical principles already carried over
 
-- 12 regular chuko plus KHAN in a compact pile;
-- SAKA starts outside/in front of the pile;
+- 12 regular чүкө plus ХАН in a compact pile;
+- САКА starts outside/in front of the pile;
 - slingshot-style aiming;
+- pull left -> aim right;
 - aiming restricted to a zone that intersects the pile rather than empty field;
 - pull amount controls throw strength;
 - visible upper arc and top-down landing;
-- manual aim has no random deviation;
-- stronger scatter at the contact area;
-- SAKA/chuko/KHAN remain independent physical bodies after contact.
+- preview and real ballistic launch use the same target point/formula;
+- manual aim has no random landing deviation;
+- stronger local scatter at the actual contact area;
+- САКА / чүкө / ХАН remain independent Havok bodies after contact.
 
-## v20.61 values that inspired v0.5
+## Visual direction added in v0.6
 
-v20.61 used, among other tuning values:
+The approved 2D/reference direction contains three distinct classes:
 
-- `impactBoost: 1.22`
-- `impactRadialFromContact: 10.2`
-- `impactForwardShare: 0.22`
-- `impactRandomScatter: 2.6`
-- `sakaFlightArcHeight: 190`
-- `sakaAirborneNoCollision: true`
+- ordinary чүкө — natural warm bone/wood tones;
+- ХАН — premium gold/dark ornamental treatment;
+- САКА — saturated blue with gold accents.
 
-The numerical units cannot be copied 1:1 because v20.61 is a 2D pixel/Matter world while v0.5 is a meter-like Babylon/Havok 3D world. The **behavioral intent** is copied instead.
+v0.6 does **not** yet use final sculpted GLB models. Instead it uses a lightweight organic procedural mesh so we can validate the visual complexity and mobile FPS before committing to final assets.
 
-## Important difference
+## Physics note
 
-v20.61 eventually has scenario-controlled visual results because it is a lottery game. v0.5 still has **no scenario layer**. The new contact boost does not select which pieces must leave the field; it only strengthens the local physical impact near the real landing point.
+The contact boost still does not select a lottery outcome and does not decide which specific pieces must leave the circle. It only strengthens the local physical impact. Scenario-controlled results will be layered on later, after the 3D physical/visual base is accepted.
 
-The next stage, after the physical feel is accepted, is to replace procedural proxy bones with proper 3D assets while preserving this physics/aiming layer.
+## Next visual stage after acceptance
+
+If v0.6 remains close to 60 FPS, the next step can add the field/environment art and then replace the procedural bodies with final optimized GLB/GLTF models while retaining these same Havok colliders and throw mechanics.

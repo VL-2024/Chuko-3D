@@ -1,47 +1,48 @@
-# CHUKO Modern 3D v0.5
+# CHUKO Modern 3D v0.6
 
-Babylon.js + Havok mobile prototype based on the throw/impact feel of ЧҮКӨ v20.61. LMS is still intentionally disconnected.
+Babylon.js + Havok mobile prototype based on the throw/impact feel of ЧҮКӨ v20.61. LMS is intentionally disconnected.
 
-## What changed after v0.4.2
+## Main change in v0.6 — first visual 3D pass
 
-- The manual aiming scheme from v0.4.2 is kept: pull left -> landing point moves right; the marker moves directly inside the pile aiming zone.
-- The throw now uses an **apex-height ballistic calculation** instead of a simple fixed flight-time range. The dotted guide and the real Havok launch use the same formula.
-- SAKA rises clearly above the field and then descends into the selected landing point from above.
-- SAKA mass increased slightly; chuko friction/mass reduced slightly to get a stronger physical response.
-- Added a configurable **contact impact boost** at the real landing point. It is not a lottery/scenario ejector: it does not choose winners or target pieces. It only transfers extra radial/forward/upward velocity to nearby physical bodies once, at impact, similar in purpose to `impactBoost` in v20.61.
-- Nearby chuko get additional angular velocity, so the scatter should include more visible tumbling rather than only sliding.
-- The impact parameters are all in `src/config.js -> throw.impactBoost`, so the next tuning pass can be done quickly without rewriting mechanics.
-- Version badge/cache parameters updated to `v0.5`.
+- Replaced the v0.5 sphere/blob proxy with a **single procedural organic loft mesh** for every чүкө, ХАН and САКА.
+- The new silhouette has a narrow waist, fuller rounded ends and slight asymmetry, so it reads much closer to an astragalus bone while remaining very light for mobile.
+- Physics stays `CONVEX_HULL`: one collider per physical piece. Decorative details are children and do not complicate Havok collisions.
+- Regular чүкө now use warm bone/wood-like PBR materials instead of white test material.
+- ХАН is larger and gold, with a dark enamel-like top insert and a gold crest.
+- САКА is larger, deep blue and glossy, with simple gold decorative details based on the approved blue/gold visual direction.
+- Added ACES tone mapping, slightly warmer directional light, improved contrast and a subtle inset playing surface.
+- Shadows remain mobile-friendly; no heavy textures, HDR environment or GLB assets yet.
+- **Aiming, ballistic arc, impact boost and scatter values from v0.5 are intentionally preserved.**
 
 ## What to check on iPhone
 
-1. FPS should remain near the already confirmed 60 FPS.
-2. During aiming, the yellow landing ring should still track the finger accurately.
-3. The dotted trajectory should rise higher and visibly fall down into the pile.
-4. The actual SAKA impact should correspond to the selected ring.
-5. Scatter should be clearly larger than v0.4.2: some chuko should travel toward the outer half of the field and tumble naturally.
-6. Check that the scatter is energetic but not like a simultaneous artificial explosion of all pieces.
+1. FPS: target is still ~60 FPS.
+2. Make sure the new organic pieces look clearly better than the pearl/blob shapes from v0.5.
+3. Check whether ХАН is immediately distinguishable inside the pile.
+4. Check whether blue/gold САКА remains easy to see at the start and during aiming.
+5. Confirm that aiming accuracy, arc and scatter feel the same as v0.5.
+6. Watch the FPS specifically during impact, when all bodies tumble and shadows move at once.
 
-## Main tuning values
+## Performance strategy
 
-`src/config.js`:
+The visual mesh is intentionally low-poly on mobile:
 
-- `throw.arcHeightMin / arcHeightMax` — visible/physical arc height;
-- `throw.impactBoost.affectRadius` — radius around the actual landing point that receives extra impact energy;
-- `radialSpeed` — radial scatter component;
-- `forwardSpeed` — smaller component in the direction of SAKA travel;
-- `liftSpeed` — how much pieces pop upward;
-- `randomSpeed` — asymmetry/irregularity;
-- `pieces.*.mass`, `physics.friction`, `fieldFriction` — base Havok behavior.
+- 8 longitudinal rings × 14 radial segments per organic body on mobile;
+- 11 × 18 on desktop;
+- one `CONVEX_HULL` physics body per piece;
+- 512 px shadow map on mobile;
+- no real-time reflections / HDR / SSAO / post-processing stack;
+- device pixel ratio remains capped at 1.45× with the existing automatic fallback.
+
+These values can be adjusted in `src/config.js -> visual` after the iPhone test.
 
 ## Still intentionally excluded
 
-- LMS / real tickets;
-- scenario-controlled ejection count;
-- payout/result UI;
-- autoplay;
-- final GLB/GLTF chuko/KHAN/SAKA models;
-- final field/environment art;
+- LMS / tickets / balance;
+- scenario-controlled result layer;
+- payout UI and autoplay;
+- final artist-made GLB/GLTF models and final textures;
+- final field/environment / Kyrgyz landscape;
 - sound/music.
 
-If Safari caches an older build, open the page with `?v=05`.
+If Safari caches an older build, open the page with `?v=06`.

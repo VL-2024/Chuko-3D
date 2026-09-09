@@ -76,102 +76,165 @@
     return merged;
   }
 
-  // v0.3 proxy astragalus: no central box. The silhouette is built from a
-  // compact ellipsoid + four large rounded lobes + two side ridges.
-  // It is still procedural, but reads much closer to the 2D references from v20.61.
-  function makeChukoBone(name, dims, mat, khan = false) {
-    const parts = [];
-    const seg = isMobile() ? 8 : 11;
 
-    const addBlob = (suffix, x, y, z, sx, sy, sz, segments = seg) => {
-      const m = BABYLON.MeshBuilder.CreateSphere(`${name}-${suffix}`, {
-        diameter: 1,
-        segments
-      }, scene);
-      m.position.set(x, y, z);
-      m.scaling.set(sx, sy, sz);
-      parts.push(m);
-      return m;
-    };
+  // v0.6 organic astragalus proxy.
+  // The body is now one lofted mesh instead of a group of intersecting spheres.
+  // Visually this reads much closer to a real chuko/saka while remaining cheap
+  // enough for mobile and keeping a single CONVEX_HULL collider.
+  function makeOrganicBone(name, dims, mat, opts = {}) {
+    const ringCount = isMobile() ? (C.visual?.organicRingsMobile || 8) : (C.visual?.organicRingsDesktop || 11);
+    const segCount = isMobile() ? (C.visual?.organicSegmentsMobile || 14) : (C.visual?.organicSegmentsDesktop || 18);
+    const positions = [];
+    const indices = [];
+    const normals = [];
+    const uvs = [];
 
-    // Soft central bridge.
-    addBlob('core', 0, 0, 0,
-      dims.width * 0.34,
-      dims.height * 0.40,
-      dims.depth * 0.43,
-      isMobile() ? 9 : 12);
+    for (let r = 0; r <= ringCount; r++) {
+      const t = -1 + (2 * r / ringCount);              // long axis: -1..1
+      const a = Math.abs(t);
+      const flare = Math.pow(a, 1.42);
+      const endSoft = Math.pow(a, 3.1);
 
-    // Four characteristic ends. Slight asymmetry prevents the object from
-    // looking like a perfect toy bone and helps the convex hull tumble.
-    const lx = dims.width * 0.19;
-    const lz = dims.depth * 0.31;
-    addBlob('fl', -lx,  dims.height * 0.015,  lz,
-      dims.width * 0.34, dims.height * 0.52, dims.depth * 0.26);
-    addBlob('fr',  lx, -dims.height * 0.010,  lz * 0.98,
-      dims.width * 0.36, dims.height * 0.49, dims.depth * 0.25);
-    addBlob('bl', -lx * 1.04, -dims.height * 0.020, -lz,
-      dims.width * 0.35, dims.height * 0.48, dims.depth * 0.27);
-    addBlob('br',  lx * 0.96, dims.height * 0.018, -lz * 1.02,
-      dims.width * 0.33, dims.height * 0.51, dims.depth * 0.26);
+      // Hourglass waist + fuller ends, matching the characteristic talus silhouette.
+      const rx = dims.width * 0.5 * (0.70 + 0.30 * flare);
+      const ry = dims.height * 0.5 * (0.72 + 0.28 * Math.pow(a, 1.22));
+      const twist = 0.105 * Math.sin(t * Math.PI * 0.5);
+      const xBias = dims.width * 0.035 * Math.sin(t * Math.PI);
+      const yBias = dims.height * 0.025 * Math.sin((t + 0.18) * Math.PI);
 
-    // Side ridges / knuckles make the waist less spherical.
-    addBlob('ridge-l', -dims.width * 0.30, dims.height * 0.02, -dims.depth * 0.01,
-      dims.width * 0.16, dims.height * 0.32, dims.depth * 0.20, isMobile() ? 7 : 9);
-    addBlob('ridge-r',  dims.width * 0.30, -dims.height * 0.01, dims.depth * 0.02,
-      dims.width * 0.15, dims.height * 0.30, dims.depth * 0.19, isMobile() ? 7 : 9);
+      for (let j = 0; j < segCount; j++) {
+        const q = j / segCount;
+        const th = q * Math.PI * 2 + twist;
+        const c = Math.cos(th);
+        const sn = Math.sin(th);
 
-    if (khan) {
-      // Small raised crown gives KHAN a distinct silhouette even without
-      // the final ornamental texture/model.
-      addBlob('crown', 0, dims.height * 0.27, -dims.depth * 0.01,
-        dims.width * 0.19, dims.height * 0.18, dims.depth * 0.22, isMobile() ? 7 : 9);
+        // Four soft lobes on the ends, but a smoother centre than the v0.5 blob proxy.
+        const lobe = 1 + (0.07 + 0.045 * flare) * Math.cos(2 * th) + 0.025 * Math.sin(3 * th + t * 1.7);
+        const topValley = Math.max(0, sn) * (1 - a) * dims.height * 0.055;
+        const lowerValley = Math.max(0, -sn) * (1 - a) * dims.height * 0.030;
+        const endRound = 1 - 0.035 * endSoft * Math.cos(th);
+
+        const x = xBias + rx * lobe * c * endRound;
+        const y = yBias + ry * (1 + 0.055 * Math.cos(2 * th)) * sn - topValley + lowerValley;
+        const z = t * dims.depth * 0.5;
+        positions.push(x, y, z);
+        uvs.push(q, r / ringCount);
+      }
     }
 
-    const merged = mergeParts(name, parts, mat);
-    merged.convertToFlatShadedMesh();
-    return merged;
+    for (let r = 0; r < ringCount; r++) {
+      for (let j = 0; j < segCount; j++) {
+        const nj = (j + 1) % segCount;
+        const a = r * segCount + j;
+        const b = r * segCount + nj;
+        const c = (r + 1) * segCount + j;
+        const d = (r + 1) * segCount + nj;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+
+    // End caps.
+    const cap0 = positions.length / 3;
+    positions.push(0, 0, -dims.depth * 0.5);
+    uvs.push(0.5, 0.5);
+    const cap1 = positions.length / 3;
+    positions.push(0, 0, dims.depth * 0.5);
+    uvs.push(0.5, 0.5);
+    for (let j = 0; j < segCount; j++) {
+      const nj = (j + 1) % segCount;
+      indices.push(cap0, nj, j);
+      const last = ringCount * segCount;
+      indices.push(cap1, last + j, last + nj);
+    }
+
+    BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+    const vd = new BABYLON.VertexData();
+    vd.positions = positions;
+    vd.indices = indices;
+    vd.normals = normals;
+    vd.uvs = uvs;
+
+    const mesh = new BABYLON.Mesh(name, scene);
+    vd.applyToMesh(mesh, true);
+    mesh.material = mat;
+
+    // A tiny non-uniform scale avoids the sterile mirrored look.
+    mesh.scaling.x = opts.scaleX || 1;
+    mesh.scaling.y = opts.scaleY || 1;
+    return mesh;
+  }
+
+  function addTopBadge(parent, kind, dims) {
+    if (!parent) return;
+    if (kind === 'khan') {
+      const enamelMat = material(`${parent.name}-enamel`, new BABYLON.Color3(0.018, 0.014, 0.012), 0.18, 0.76);
+      const plate = BABYLON.MeshBuilder.CreateSphere(`${parent.name}-plate`, { diameter: 1, segments: isMobile() ? 10 : 14 }, scene);
+      plate.parent = parent;
+      plate.position.set(0, dims.height * 0.38, -dims.depth * 0.015);
+      plate.scaling.set(dims.width * 0.34, dims.height * 0.045, dims.depth * 0.27);
+      plate.material = enamelMat;
+
+      const goldMat = material(`${parent.name}-badge-gold`, new BABYLON.Color3(0.86, 0.51, 0.07), 0.20, 0.92);
+      const crest = BABYLON.MeshBuilder.CreateCylinder(`${parent.name}-crest`, {
+        diameter: dims.width * 0.17,
+        height: dims.height * 0.028,
+        tessellation: 4
+      }, scene);
+      crest.parent = parent;
+      crest.position.set(0, dims.height * 0.422, -dims.depth * 0.015);
+      crest.rotation.y = Math.PI / 4;
+      crest.material = goldMat;
+      return;
+    }
+
+    if (kind === 'saka') {
+      const goldMat = material(`${parent.name}-gold`, new BABYLON.Color3(0.91, 0.55, 0.08), 0.24, 0.88);
+      const diamond = BABYLON.MeshBuilder.CreateCylinder(`${parent.name}-diamond`, {
+        diameter: dims.width * 0.22,
+        height: dims.height * 0.03,
+        tessellation: 4
+      }, scene);
+      diamond.parent = parent;
+      diamond.position.set(0, dims.height * 0.39, -dims.depth * 0.015);
+      diamond.rotation.y = Math.PI / 4;
+      diamond.material = goldMat;
+
+      // Four small gold studs echo the approved blue/gold SAKA references.
+      const studPositions = [
+        [-0.20, 0.22], [0.20, 0.22], [-0.20, -0.22], [0.20, -0.22]
+      ];
+      studPositions.forEach(([x, z], i) => {
+        const stud = BABYLON.MeshBuilder.CreateSphere(`${parent.name}-stud-${i}`, { diameter: dims.width * 0.075, segments: 8 }, scene);
+        stud.parent = parent;
+        stud.position.set(x * dims.width, dims.height * 0.385, z * dims.depth);
+        stud.scaling.y = 0.34;
+        stud.material = goldMat;
+      });
+    }
+  }
+
+  function makeChukoBone(name, dims, mat, khan = false) {
+    const mesh = makeOrganicBone(name, dims, mat, {
+      scaleX: khan ? 1.03 : (0.98 + Math.random() * 0.04),
+      scaleY: khan ? 1.02 : (0.98 + Math.random() * 0.035)
+    });
+    if (khan) addTopBadge(mesh, 'khan', dims);
+    return mesh;
   }
 
   function makeSakaBone(name, dims, mat) {
-    const parts = [];
-    const seg = isMobile() ? 9 : 12;
-
-    const addBlob = (suffix, x, y, z, sx, sy, sz, segments = seg) => {
-      const m = BABYLON.MeshBuilder.CreateSphere(`${name}-${suffix}`, {
-        diameter: 1,
-        segments
-      }, scene);
-      m.position.set(x, y, z);
-      m.scaling.set(sx, sy, sz);
-      parts.push(m);
-    };
-
-    addBlob('core', 0, 0, 0,
-      dims.width * 0.37, dims.height * 0.42, dims.depth * 0.44, isMobile() ? 10 : 14);
-
-    const x = dims.width * 0.20;
-    const z = dims.depth * 0.31;
-    addBlob('fl', -x, 0.00,  z,
-      dims.width * 0.36, dims.height * 0.53, dims.depth * 0.27);
-    addBlob('fr',  x, 0.01,  z * 0.98,
-      dims.width * 0.37, dims.height * 0.51, dims.depth * 0.26);
-    addBlob('bl', -x * 1.03, -0.01, -z,
-      dims.width * 0.35, dims.height * 0.50, dims.depth * 0.28);
-    addBlob('br',  x * 0.98, 0.01, -z * 1.01,
-      dims.width * 0.36, dims.height * 0.52, dims.depth * 0.27);
-
-    addBlob('side-l', -dims.width * 0.31, 0, 0,
-      dims.width * 0.16, dims.height * 0.32, dims.depth * 0.21, isMobile() ? 7 : 9);
-    addBlob('side-r',  dims.width * 0.31, 0, 0,
-      dims.width * 0.16, dims.height * 0.31, dims.depth * 0.21, isMobile() ? 7 : 9);
-
-    const merged = mergeParts(name, parts, mat);
-    merged.convertToFlatShadedMesh();
-    return merged;
+    const mesh = makeOrganicBone(name, dims, mat, { scaleX: 1.04, scaleY: 1.03 });
+    addTopBadge(mesh, 'saka', dims);
+    return mesh;
   }
 
   function createEnvironment() {
-    scene.clearColor = new BABYLON.Color4(0.025, 0.075, 0.095, 1);
+    scene.clearColor = new BABYLON.Color4(0.018, 0.055, 0.072, 1);
+
+    scene.imageProcessingConfiguration.toneMappingEnabled = true;
+    scene.imageProcessingConfiguration.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+    scene.imageProcessingConfiguration.exposure = C.visual?.toneExposure || 1.08;
+    scene.imageProcessingConfiguration.contrast = C.visual?.toneContrast || 1.10;
 
     const camera = new BABYLON.ArcRotateCamera(
       'camera',
@@ -188,12 +251,13 @@
     camera.inputs.clear();
 
     const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.2, 1, 0.1), scene);
-    hemi.intensity = 1.22;
-    hemi.groundColor = new BABYLON.Color3(0.07, 0.08, 0.065);
+    hemi.intensity = 0.96;
+    hemi.groundColor = new BABYLON.Color3(0.035, 0.055, 0.045);
 
     const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.35, -1, 0.45), scene);
     sun.position = new BABYLON.Vector3(4, 8, -5);
-    sun.intensity = 1.9;
+    sun.intensity = 2.25;
+    sun.diffuse = new BABYLON.Color3(1.0, 0.90, 0.72);
 
     const shadowMapSize = isMobile() ? 512 : 1024;
     const shadows = new BABYLON.ShadowGenerator(shadowMapSize, sun);
@@ -201,7 +265,7 @@
     shadows.bias = 0.002;
     scene.metadata = { shadows };
 
-    const fieldMat = material('fieldMat', new BABYLON.Color3(0.34, 0.50, 0.28), 0.96, 0.0);
+    const fieldMat = material('fieldMat', new BABYLON.Color3(0.30, 0.46, 0.25), 0.91, 0.0);
     field = BABYLON.MeshBuilder.CreateCylinder('field', {
       height: C.field.thickness,
       diameter: C.field.visualRadius * 2,
@@ -210,6 +274,18 @@
     field.position.y = -C.field.thickness / 2;
     field.material = fieldMat;
     field.receiveShadows = true;
+
+
+    // Slight inset playing surface: gives the field depth without a texture or extra physics body.
+    const innerMat = material('fieldInnerMat', new BABYLON.Color3(0.38, 0.55, 0.30), 0.94, 0.0);
+    const inner = BABYLON.MeshBuilder.CreateCylinder('field-inner', {
+      height: 0.024,
+      diameter: (C.visual?.fieldInnerRadius || 3.14) * 2,
+      tessellation: 64
+    }, scene);
+    inner.position.y = C.visual?.fieldInnerLift || 0.012;
+    inner.material = innerMat;
+    inner.receiveShadows = true;
 
     const fieldPhysicsMesh = BABYLON.MeshBuilder.CreateCylinder('field-physics', {
       height: C.field.thickness,
@@ -227,7 +303,7 @@
     bodies.push({ mesh: fieldPhysicsMesh, aggregate: fieldAggregate, permanent: true });
 
     // В v0.2 визуальный бортик ниже: разлёт лучше читается и край меньше похож на стену.
-    const rimMat = material('rimMat', new BABYLON.Color3(0.61, 0.70, 0.38), 0.8, 0.05);
+    const rimMat = material('rimMat', new BABYLON.Color3(0.58, 0.66, 0.32), 0.72, 0.08);
     const rim = BABYLON.MeshBuilder.CreateTorus('rim', {
       diameter: C.field.radius * 2 + 0.14,
       thickness: 0.075,
@@ -240,7 +316,7 @@
 
     const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: 25, height: 25 }, scene);
     ground.position.y = -0.22;
-    const groundMat = material('groundMat', new BABYLON.Color3(0.08, 0.16, 0.13), 1.0, 0.0);
+    const groundMat = material('groundMat', new BABYLON.Color3(0.055, 0.115, 0.095), 1.0, 0.0);
     ground.material = groundMat;
     ground.receiveShadows = true;
 
@@ -262,9 +338,12 @@
   }
 
   function createPiece(name, dims, pos, color, isKhan = false, yaw = 0) {
-    const mat = material(`${name}-mat`, color, isKhan ? 0.24 : 0.69, isKhan ? 0.78 : 0.03);
+    const mat = material(`${name}-mat`, color, isKhan ? 0.26 : 0.62, isKhan ? 0.90 : 0.02);
+    mat.clearCoat.isEnabled = true;
+    mat.clearCoat.intensity = isKhan ? 0.74 : 0.18;
+    mat.clearCoat.roughness = isKhan ? 0.20 : 0.52;
     if (isKhan) {
-      mat.emissiveColor = new BABYLON.Color3(0.055, 0.028, 0.004);
+      mat.emissiveColor = new BABYLON.Color3(0.025, 0.012, 0.002);
     }
     const mesh = makeChukoBone(name, dims, mat, isKhan);
     mesh.position.copyFrom(pos);
@@ -321,16 +400,16 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.5 · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.6 · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
     if (ui.aimPower) ui.aimPower.hidden = true;
 
     const chukoColors = [
-      new BABYLON.Color3(0.77,0.70,0.57),
-      new BABYLON.Color3(0.66,0.60,0.48),
-      new BABYLON.Color3(0.83,0.75,0.61)
+      new BABYLON.Color3(0.78,0.56,0.30),
+      new BABYLON.Color3(0.70,0.47,0.24),
+      new BABYLON.Color3(0.86,0.64,0.36)
     ];
 
     const positions = pilePositions();
@@ -358,13 +437,16 @@
       'KHAN',
       kd,
       new BABYLON.Vector3(0.0, kd.height * 0.54, C.pile.offsetZ - 0.01),
-      new BABYLON.Color3(0.12, 0.075, 0.025),
+      new BABYLON.Color3(0.63, 0.30, 0.035),
       true,
       0.58
     );
 
     const sd = C.pieces.saka;
-    const sakaMat = material('saka-mat', new BABYLON.Color3(0.025, 0.22, 0.78), 0.22, 0.44);
+    const sakaMat = material('saka-mat', new BABYLON.Color3(0.018, 0.16, 0.62), 0.20, 0.54);
+    sakaMat.clearCoat.isEnabled = true;
+    sakaMat.clearCoat.intensity = 0.78;
+    sakaMat.clearCoat.roughness = 0.19;
     saka = makeSakaBone('SAKA', sd, sakaMat);
     saka.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
     saka.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12);
@@ -753,7 +835,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.5 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.6 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -830,7 +912,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.5 · разлёт + верхняя дуга · «Ещё бросок» соберёт кучку';
+      ui.hint.textContent = 'v0.6 · разлёт + верхняя дуга · «Ещё бросок» соберёт кучку';
     }, C.throw.settleMs);
   }
 

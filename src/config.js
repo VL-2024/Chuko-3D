@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.5',
+  version: '0.6',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -21,9 +21,21 @@ window.CHUKO3D_CONFIG = Object.freeze({
   },
 
   pieces: {
-    chuko: { width: 0.42, height: 0.30, depth: 0.72, mass: 0.10 },
-    khan:  { width: 0.47, height: 0.33, depth: 0.79, mass: 0.14 },
-    saka:  { width: 0.62, height: 0.43, depth: 0.88, mass: 0.78 }
+    chuko: { width: 0.46, height: 0.31, depth: 0.70, mass: 0.10 },
+    khan:  { width: 0.51, height: 0.34, depth: 0.78, mass: 0.14 },
+    saka:  { width: 0.66, height: 0.45, depth: 0.91, mass: 0.78 }
+  },
+
+
+  visual: {
+    organicRingsMobile: 8,
+    organicRingsDesktop: 11,
+    organicSegmentsMobile: 14,
+    organicSegmentsDesktop: 18,
+    toneExposure: 1.08,
+    toneContrast: 1.10,
+    fieldInnerRadius: 3.14,
+    fieldInnerLift: 0.012
   },
 
   physics: {
