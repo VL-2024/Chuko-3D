@@ -69,70 +69,98 @@
     return merged;
   }
 
-  // v0.2 temporary low-poly silhouette: narrow middle + four asymmetric lobes.
-  // This is still a proxy, not the final scanned/modelled astragalus.
+  // v0.3 proxy astragalus: no central box. The silhouette is built from a
+  // compact ellipsoid + four large rounded lobes + two side ridges.
+  // It is still procedural, but reads much closer to the 2D references from v20.61.
   function makeChukoBone(name, dims, mat, khan = false) {
     const parts = [];
+    const seg = isMobile() ? 8 : 11;
 
-    const waist = BABYLON.MeshBuilder.CreateBox(`${name}-waist`, {
-      width: dims.width * 0.54,
-      height: dims.height * 0.70,
-      depth: dims.depth * 0.48
-    }, scene);
-    parts.push(waist);
-
-    const makeLobe = (suffix, x, y, z, sx, sy, sz) => {
+    const addBlob = (suffix, x, y, z, sx, sy, sz, segments = seg) => {
       const m = BABYLON.MeshBuilder.CreateSphere(`${name}-${suffix}`, {
         diameter: 1,
-        segments: isMobile() ? 7 : 9
+        segments
+      }, scene);
+      m.position.set(x, y, z);
+      m.scaling.set(sx, sy, sz);
+      parts.push(m);
+      return m;
+    };
+
+    // Soft central bridge.
+    addBlob('core', 0, 0, 0,
+      dims.width * 0.34,
+      dims.height * 0.40,
+      dims.depth * 0.43,
+      isMobile() ? 9 : 12);
+
+    // Four characteristic ends. Slight asymmetry prevents the object from
+    // looking like a perfect toy bone and helps the convex hull tumble.
+    const lx = dims.width * 0.19;
+    const lz = dims.depth * 0.31;
+    addBlob('fl', -lx,  dims.height * 0.015,  lz,
+      dims.width * 0.34, dims.height * 0.52, dims.depth * 0.26);
+    addBlob('fr',  lx, -dims.height * 0.010,  lz * 0.98,
+      dims.width * 0.36, dims.height * 0.49, dims.depth * 0.25);
+    addBlob('bl', -lx * 1.04, -dims.height * 0.020, -lz,
+      dims.width * 0.35, dims.height * 0.48, dims.depth * 0.27);
+    addBlob('br',  lx * 0.96, dims.height * 0.018, -lz * 1.02,
+      dims.width * 0.33, dims.height * 0.51, dims.depth * 0.26);
+
+    // Side ridges / knuckles make the waist less spherical.
+    addBlob('ridge-l', -dims.width * 0.30, dims.height * 0.02, -dims.depth * 0.01,
+      dims.width * 0.16, dims.height * 0.32, dims.depth * 0.20, isMobile() ? 7 : 9);
+    addBlob('ridge-r',  dims.width * 0.30, -dims.height * 0.01, dims.depth * 0.02,
+      dims.width * 0.15, dims.height * 0.30, dims.depth * 0.19, isMobile() ? 7 : 9);
+
+    if (khan) {
+      // Small raised crown gives KHAN a distinct silhouette even without
+      // the final ornamental texture/model.
+      addBlob('crown', 0, dims.height * 0.27, -dims.depth * 0.01,
+        dims.width * 0.19, dims.height * 0.18, dims.depth * 0.22, isMobile() ? 7 : 9);
+    }
+
+    const merged = mergeParts(name, parts, mat);
+    merged.convertToFlatShadedMesh();
+    return merged;
+  }
+
+  function makeSakaBone(name, dims, mat) {
+    const parts = [];
+    const seg = isMobile() ? 9 : 12;
+
+    const addBlob = (suffix, x, y, z, sx, sy, sz, segments = seg) => {
+      const m = BABYLON.MeshBuilder.CreateSphere(`${name}-${suffix}`, {
+        diameter: 1,
+        segments
       }, scene);
       m.position.set(x, y, z);
       m.scaling.set(sx, sy, sz);
       parts.push(m);
     };
 
-    makeLobe('head-a',  dims.width * 0.08,  0.00,  dims.depth * 0.29,
-      dims.width * 0.46, dims.height * 0.48, dims.depth * 0.25);
-    makeLobe('head-b', -dims.width * 0.09, -0.01, -dims.depth * 0.29,
-      dims.width * 0.42, dims.height * 0.44, dims.depth * 0.27);
-    makeLobe('knuckle-a', dims.width * 0.27, dims.height * 0.04, dims.depth * 0.02,
-      dims.width * 0.22, dims.height * 0.38, dims.depth * 0.18);
-    makeLobe('knuckle-b', -dims.width * 0.25, -dims.height * 0.03, -dims.depth * 0.08,
-      dims.width * 0.20, dims.height * 0.33, dims.depth * 0.19);
+    addBlob('core', 0, 0, 0,
+      dims.width * 0.37, dims.height * 0.42, dims.depth * 0.44, isMobile() ? 10 : 14);
 
-    if (khan) {
-      makeLobe('crown', dims.width * 0.04, dims.height * 0.20, -dims.depth * 0.01,
-        dims.width * 0.20, dims.height * 0.24, dims.depth * 0.17);
-    }
+    const x = dims.width * 0.20;
+    const z = dims.depth * 0.31;
+    addBlob('fl', -x, 0.00,  z,
+      dims.width * 0.36, dims.height * 0.53, dims.depth * 0.27);
+    addBlob('fr',  x, 0.01,  z * 0.98,
+      dims.width * 0.37, dims.height * 0.51, dims.depth * 0.26);
+    addBlob('bl', -x * 1.03, -0.01, -z,
+      dims.width * 0.35, dims.height * 0.50, dims.depth * 0.28);
+    addBlob('br',  x * 0.98, 0.01, -z * 1.01,
+      dims.width * 0.36, dims.height * 0.52, dims.depth * 0.27);
 
-    return mergeParts(name, parts, mat);
-  }
+    addBlob('side-l', -dims.width * 0.31, 0, 0,
+      dims.width * 0.16, dims.height * 0.32, dims.depth * 0.21, isMobile() ? 7 : 9);
+    addBlob('side-r',  dims.width * 0.31, 0, 0,
+      dims.width * 0.16, dims.height * 0.31, dims.depth * 0.21, isMobile() ? 7 : 9);
 
-  function makeSakaBone(name, dims, mat) {
-    const parts = [];
-    const center = BABYLON.MeshBuilder.CreateSphere(`${name}-center`, {
-      diameter: 1,
-      segments: isMobile() ? 9 : 12
-    }, scene);
-    center.scaling.set(dims.width * 0.46, dims.height * 0.48, dims.depth * 0.38);
-    parts.push(center);
-
-    const a = BABYLON.MeshBuilder.CreateSphere(`${name}-a`, { diameter: 1, segments: isMobile() ? 8 : 10 }, scene);
-    a.position.set(dims.width * 0.08, 0, dims.depth * 0.30);
-    a.scaling.set(dims.width * 0.40, dims.height * 0.42, dims.depth * 0.26);
-    parts.push(a);
-
-    const b = BABYLON.MeshBuilder.CreateSphere(`${name}-b`, { diameter: 1, segments: isMobile() ? 8 : 10 }, scene);
-    b.position.set(-dims.width * 0.09, 0, -dims.depth * 0.30);
-    b.scaling.set(dims.width * 0.43, dims.height * 0.40, dims.depth * 0.27);
-    parts.push(b);
-
-    const side = BABYLON.MeshBuilder.CreateSphere(`${name}-side`, { diameter: 1, segments: 7 }, scene);
-    side.position.set(dims.width * 0.31, dims.height * 0.02, -dims.depth * 0.03);
-    side.scaling.set(dims.width * 0.20, dims.height * 0.30, dims.depth * 0.20);
-    parts.push(side);
-
-    return mergeParts(name, parts, mat);
+    const merged = mergeParts(name, parts, mat);
+    merged.convertToFlatShadedMesh();
+    return merged;
   }
 
   function createEnvironment() {
@@ -227,7 +255,10 @@
   }
 
   function createPiece(name, dims, pos, color, isKhan = false, yaw = 0) {
-    const mat = material(`${name}-mat`, color, isKhan ? 0.38 : 0.73, isKhan ? 0.50 : 0.04);
+    const mat = material(`${name}-mat`, color, isKhan ? 0.24 : 0.69, isKhan ? 0.78 : 0.03);
+    if (isKhan) {
+      mat.emissiveColor = new BABYLON.Color3(0.055, 0.028, 0.004);
+    }
     const mesh = makeChukoBone(name, dims, mat, isKhan);
     mesh.position.copyFrom(pos);
     mesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
@@ -237,10 +268,10 @@
     );
     addShadow(mesh);
 
-    // Box proxy keeps 13 dynamic pile bodies cheap and stable on phones.
+    // v0.3: convex hull follows the irregular proxy silhouette much better than a box.
     const aggregate = new BABYLON.PhysicsAggregate(
       mesh,
-      BABYLON.PhysicsShapeType.BOX,
+      BABYLON.PhysicsShapeType.CONVEX_HULL,
       {
         mass: dims.mass,
         friction: C.physics.friction,
@@ -281,7 +312,7 @@
     roundIndex++;
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'Высокая физическая дуга → удар сверху в центр кучки';
+    ui.hint.textContent = 'v0.3 · convex hull: смотрим кувырки, разлёт и FPS';
     ui.hint.style.opacity = '1';
 
     const chukoColors = [
@@ -298,10 +329,11 @@
       const z = C.pile.offsetZ + pz + (Math.random() - 0.5) * jitter * 2;
       // Alternating directions make the pile look irregular without spawning overlaps.
       const yaw = (i % 2 ? 0.78 : -0.72) + (i % 4 - 1.5) * 0.10;
+      const lift = (i % 5 === 0 || i % 7 === 0) ? C.pile.stackLift : 0;
       createPiece(
         `chuko-${i+1}`,
         d,
-        new BABYLON.Vector3(x, d.height * 0.56, z),
+        new BABYLON.Vector3(x, d.height * 0.58 + lift, z),
         chukoColors[i % chukoColors.length],
         false,
         yaw
@@ -314,22 +346,23 @@
       'KHAN',
       kd,
       new BABYLON.Vector3(0.0, kd.height * 0.54, C.pile.offsetZ - 0.01),
-      new BABYLON.Color3(0.98, 0.62, 0.07),
+      new BABYLON.Color3(0.12, 0.075, 0.025),
       true,
       0.58
     );
 
     const sd = C.pieces.saka;
-    const sakaMat = material('saka-mat', new BABYLON.Color3(0.08, 0.39, 0.92), 0.30, 0.25);
+    const sakaMat = material('saka-mat', new BABYLON.Color3(0.025, 0.22, 0.78), 0.22, 0.44);
     saka = makeSakaBone('SAKA', sd, sakaMat);
     saka.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
     saka.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12);
     addShadow(saka);
 
-    // Mobile-friendly spherical proxy for the throw; visual mesh is irregular.
+    // v0.3: SAKA also uses an irregular convex hull. With only 14 dynamic bodies
+    // this should still be cheap enough; FPS panel remains our acceptance test.
     sakaAggregate = new BABYLON.PhysicsAggregate(
       saka,
-      BABYLON.PhysicsShapeType.SPHERE,
+      BABYLON.PhysicsShapeType.CONVEX_HULL,
       {
         mass: sd.mass,
         friction: C.physics.sakaFriction,
@@ -353,7 +386,7 @@
     thrown = true;
     ui.throwBtn.disabled = true;
     ui.throwBtn.textContent = 'САКА В ПОЛЁТЕ…';
-    ui.hint.textContent = 'Havok: высокая дуга → ускорение вниз → физический контакт';
+    ui.hint.textContent = 'Havok convex hull: САКА падает сверху и цепляет реальную форму чүкө';
 
     const jitter = C.throw.targetJitter;
     const target = new BABYLON.Vector3(

@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.2',
+  version: '0.3',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -8,33 +8,34 @@ window.CHUKO3D_CONFIG = Object.freeze({
     visualRadius: 3.42
   },
 
-  // v0.2: кучка ближе к композиции v20.61 — компактные 3 ряда,
-  // ХАН лежит в центре, а не появляется отдельно за кучей.
+  // v0.3: кучка стала объёмнее и менее 'разложенной по сетке'.
+  // ХАН остаётся внутри, но чүкө получают небольшую высоту/наклон и оседают Havok-ом.
   pile: {
     chukoCount: 12,
     offsetZ: -0.42,
-    spreadX: 0.88,
-    spreadZ: 0.62,
-    positionJitter: 0.055,
-    angleJitter: 0.24
+    spreadX: 0.78,
+    spreadZ: 0.54,
+    positionJitter: 0.09,
+    angleJitter: 0.42,
+    stackLift: 0.16
   },
 
   pieces: {
-    // Визуальная геометрия стала похожа на кость, но collision shape пока
-    // намеренно остаётся простой и быстрой для мобильного Havok.
-    chuko: { width: 0.34, height: 0.25, depth: 0.74, mass: 0.13 },
-    khan:  { width: 0.39, height: 0.29, depth: 0.82, mass: 0.17 },
-    saka:  { width: 0.56, height: 0.39, depth: 0.84, physicsDiameter: 0.60, mass: 0.48 }
+    // Пропорции всё ещё proxy, но силуэт теперь ближе к реальному альчику.
+    // В v0.3 BOX/SPHERE collision заменён на CONVEX_HULL для более естественного кувыркания.
+    chuko: { width: 0.42, height: 0.30, depth: 0.72, mass: 0.13 },
+    khan:  { width: 0.47, height: 0.33, depth: 0.79, mass: 0.17 },
+    saka:  { width: 0.62, height: 0.43, depth: 0.88, mass: 0.50 }
   },
 
   physics: {
     gravity: -9.81,
     // Чуть меньше сцепления и отскока, чем в v0.1: удар жёстче,
     // чүкө легче переворачиваются и не превращаются в резиновые бруски.
-    friction: 0.54,
-    restitution: 0.24,
-    sakaFriction: 0.38,
-    sakaRestitution: 0.29
+    friction: 0.50,
+    restitution: 0.20,
+    sakaFriction: 0.34,
+    sakaRestitution: 0.25
   },
 
   throw: {
@@ -43,9 +44,9 @@ window.CHUKO3D_CONFIG = Object.freeze({
     start: { x: 0.05, y: 0.42, z: 4.45 },
     targetY: 0.30,
     flightTime: 1.12,
-    targetJitter: 0.20,
-    sideSpin: 12.8,
-    settleMs: 2650
+    targetJitter: 0.16,
+    sideSpin: 13.6,
+    settleMs: 2850
   },
 
   camera: {
