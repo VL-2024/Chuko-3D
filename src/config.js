@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.8.10',
+  version: '0.8.11',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -79,12 +79,12 @@ window.CHUKO3D_CONFIG = Object.freeze({
       enabled: true,
       triggerHeight: 0.72,
       triggerRadius: 0.48,
-      affectRadius: 1.24,
-      radialSpeed: 4.35,
-      forwardSpeed: 1.15,
-      liftSpeed: 1.05,
-      randomSpeed: 0.72,
-      khanFactor: 0.92
+      affectRadius: 1.08,
+      radialSpeed: 2.95,
+      forwardSpeed: 0.78,
+      liftSpeed: 0.72,
+      randomSpeed: 0.40,
+      khanFactor: 0.86
     },
 
     // Аналог v20.61: бросок ограничен сектором, который гарантированно пересекает кучку.
