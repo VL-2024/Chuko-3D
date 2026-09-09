@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.4.2',
+  version: '0.5',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -21,20 +21,20 @@ window.CHUKO3D_CONFIG = Object.freeze({
   },
 
   pieces: {
-    chuko: { width: 0.42, height: 0.30, depth: 0.72, mass: 0.11 },
-    khan:  { width: 0.47, height: 0.33, depth: 0.79, mass: 0.15 },
-    saka:  { width: 0.62, height: 0.43, depth: 0.88, mass: 0.68 }
+    chuko: { width: 0.42, height: 0.30, depth: 0.72, mass: 0.10 },
+    khan:  { width: 0.47, height: 0.33, depth: 0.79, mass: 0.14 },
+    saka:  { width: 0.62, height: 0.43, depth: 0.88, mass: 0.78 }
   },
 
   physics: {
     gravity: -9.81,
-    // v0.4: меньше сцепления с полем + более тяжёлая САКА.
-    // Разлёт должен стать примерно в 1.5–2 раза выразительнее без сценарного "взрыва".
-    friction: 0.30,
-    restitution: 0.24,
-    sakaFriction: 0.24,
-    sakaRestitution: 0.28,
-    fieldFriction: 0.42,
+    // v0.5: ещё меньше сцепления с полем + более тяжёлая САКА.
+    // Базовый Havok-разлёт усилен, а точечный contact boost добавляет энергию в момент удара.
+    friction: 0.24,
+    restitution: 0.22,
+    sakaFriction: 0.20,
+    sakaRestitution: 0.26,
+    fieldFriction: 0.34,
     fieldRestitution: 0.08,
     groundFriction: 0.50,
     groundRestitution: 0.05
@@ -44,12 +44,27 @@ window.CHUKO3D_CONFIG = Object.freeze({
     start: { x: 0.72, y: 0.72, z: 2.85 },
     targetY: 0.30,
 
-    // Реальная Havok-баллистика. Сильный pull даёт чуть более высокую/долгую дугу,
-    // поэтому вертикальная составляющая удара также растёт.
-    flightTimeMin: 1.02,
-    flightTimeMax: 1.18,
-    sideSpin: 14.8,
-    settleMs: 3100,
+    // v0.5: дуга задаётся через реальную высоту апекса.
+    // Это делает полёт визуально стабильнее: САКА действительно поднимается
+    // над полем и затем падает сверху точно в выбранную точку.
+    arcHeightMin: 1.55,
+    arcHeightMax: 2.05,
+    sideSpin: 15.4,
+    settleMs: 3400,
+
+    // Контактный импульс не задаёт результат сценария — он лишь усиливает
+    // энергию реального удара Havok в ближайшей зоне, как impactBoost в v20.61.
+    impactBoost: {
+      enabled: true,
+      triggerHeight: 0.72,
+      triggerRadius: 0.48,
+      affectRadius: 1.24,
+      radialSpeed: 4.35,
+      forwardSpeed: 1.15,
+      liftSpeed: 1.05,
+      randomSpeed: 0.72,
+      khanFactor: 0.92
+    },
 
     // Аналог v20.61: бросок ограничен сектором, который гарантированно пересекает кучку.
     aimRadius: 0.78,
@@ -58,9 +73,9 @@ window.CHUKO3D_CONFIG = Object.freeze({
     landingPowerExponent: 0.92,
     deviationMaxDeg: 4.5,
     manualDeviationMaxDeg: 0.0,
-    aimPointRadiusFactor: 0.88,
-    aimHorizontalSensitivity: 1.00,
-    aimDepthSensitivity: 0.92,
+    aimPointRadiusFactor: 0.92,
+    aimHorizontalSensitivity: 1.06,
+    aimDepthSensitivity: 1.00,
     maxPullPxMobile: 118,
     maxPullPxDesktop: 132,
     sakaPullWorld: 0.62,

@@ -32,6 +32,8 @@
   let aimTarget = null;
   let aimDotMaterial = null;
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
+  let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
+  let roundSeed = 1;
 
   function showFatal(error) {
     console.error(error);
@@ -284,7 +286,7 @@
       },
       scene
     );
-    bodies.push({ mesh, aggregate });
+    bodies.push({ mesh, aggregate, role: isKhan ? 'khan' : 'chuko' });
     return { mesh, aggregate };
   }
 
@@ -315,9 +317,11 @@
     clearRoundBodies();
     thrown = false;
     roundIndex++;
+    roundSeed = roundIndex * 7919 + 17;
+    throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.4.2 · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.5 · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -378,7 +382,7 @@
       },
       scene
     );
-    bodies.push({ mesh: saka, aggregate: sakaAggregate });
+    bodies.push({ mesh: saka, aggregate: sakaAggregate, role: 'saka' });
 
     sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
     updateBodyCount();
@@ -393,9 +397,27 @@
     updateAimVisuals(defaultPoint, 0.58);
   }
 
-  function ballisticVelocity(start, target, flightTime, gravityY) {
-    const g = new BABYLON.Vector3(0, gravityY, 0);
-    return target.subtract(start).subtract(g.scale(0.5 * flightTime * flightTime)).scale(1 / flightTime);
+  function ballisticForApex(start, target, power01) {
+    const p = clamp01(power01);
+    const g = Math.max(0.001, Math.abs(C.physics.gravity));
+    const arcMin = Math.max(0.55, Number(C.throw.arcHeightMin || 1.55));
+    const arcMax = Math.max(arcMin, Number(C.throw.arcHeightMax || arcMin));
+    const arcHeight = arcMin + (arcMax - arcMin) * p;
+
+    const apexY = Math.max(start.y, target.y) + arcHeight;
+    const rise = Math.max(0.001, apexY - start.y);
+    const fall = Math.max(0.001, apexY - target.y);
+    const vy = Math.sqrt(2 * g * rise);
+    const tUp = vy / g;
+    const tDown = Math.sqrt(2 * fall / g);
+    const flightTime = tUp + tDown;
+
+    const horizontal = target.subtract(start);
+    horizontal.y = 0;
+    const vxz = horizontal.scale(1 / Math.max(0.001, flightTime));
+    const velocity = new BABYLON.Vector3(vxz.x, vy, vxz.z);
+
+    return { velocity, flightTime, apexY, arcHeight };
   }
 
   function clamp01(v) {
@@ -493,11 +515,6 @@
     return { ...landing, guideDir: guide, deviation };
   }
 
-  function flightTimeForPower(power) {
-    const p = clamp01(power);
-    return C.throw.flightTimeMin + (C.throw.flightTimeMax - C.throw.flightTimeMin) * p;
-  }
-
   function createAimVisuals() {
     aimDotMaterial = new BABYLON.StandardMaterial('aim-dot-mat', scene);
     aimDotMaterial.diffuseColor = new BABYLON.Color3(0.98, 1.00, 0.86);
@@ -542,8 +559,9 @@
     if (!saka || !aimDots.length) return;
     const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
     const target = new BABYLON.Vector3(target2.x, C.throw.targetY, target2.z);
-    const flightTime = flightTimeForPower(power);
-    const v = ballisticVelocity(start, target, flightTime, C.physics.gravity);
+    const ballistic = ballisticForApex(start, target, power);
+    const flightTime = ballistic.flightTime;
+    const v = ballistic.velocity;
 
     aimDots.forEach((dot, i) => {
       const t = flightTime * ((i + 1) / (aimDots.length + 1));
@@ -639,7 +657,7 @@
     const capped = Math.min(maxPull, pullLen);
     const power = clamp01(capped / maxPull);
 
-    // v0.4.2: landing point follows the finger in a camera-aware 2D aiming disc.
+    // v0.5 keeps the precise v0.4.2 camera-aware 2D aiming disc.
     // This removes the old non-linear ray/power mapping and fixes horizontal mirroring.
     const targetPoint = targetPointFromDrag(dx, dy, maxPull);
     const geo = aimGeometry();
@@ -735,7 +753,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.4.2 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.5 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -764,7 +782,7 @@
     let landingPoint;
     if (options.targetPoint) {
       // Manual drag is precise by design: preview ring and ballistic target are the same point.
-      // A tiny optional deviation can be enabled later, but defaults to zero in v0.4.2.
+      // A tiny optional deviation can be enabled later, but defaults to zero for manual aim.
       landingPoint = { x: options.targetPoint.x, z: options.targetPoint.z };
       const dev = Math.max(0, Number(C.throw.manualDeviationMaxDeg || 0)) * Math.PI / 180;
       if (dev > 0) {
@@ -782,17 +800,25 @@
 
     const target = new BABYLON.Vector3(landingPoint.x, C.throw.targetY, landingPoint.z);
     const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
-    const flightTime = flightTimeForPower(power);
+    const ballistic = ballisticForApex(start, target, power);
 
-    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · Havok: смотрим дальность разлёта`;
+    throwState = {
+      active: true,
+      targetPoint: { x: landingPoint.x, z: landingPoint.z },
+      guideDir: { x: guideDir.x, z: guideDir.z },
+      power,
+      impactBoosted: false,
+      flightTime: ballistic.flightTime
+    };
+
+    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · сверху в точку · Havok`;
 
     saka.position.copyFrom(start);
     sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
     sakaAggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
     sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
 
-    const v = ballisticVelocity(start, target, flightTime, C.physics.gravity);
-    sakaAggregate.body.setLinearVelocity(v);
+    sakaAggregate.body.setLinearVelocity(ballistic.velocity);
     const spin = C.throw.sideSpin * (0.82 + power * 0.36);
     sakaAggregate.body.setAngularVelocity(new BABYLON.Vector3(
       -spin * 0.60,
@@ -803,8 +829,86 @@
     resetTimer = window.setTimeout(() => {
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
-      ui.hint.textContent = 'Разлёт усилен · «Ещё бросок» соберёт кучку заново';
+      throwState.active = false;
+      ui.hint.textContent = 'v0.5 · разлёт + верхняя дуга · «Ещё бросок» соберёт кучку';
     }, C.throw.settleMs);
+  }
+
+  function seededNoise(index) {
+    let x = (roundSeed + index * 374761393) >>> 0;
+    x = (x ^ (x >> 13)) >>> 0;
+    x = Math.imul(x, 1274126177) >>> 0;
+    x = (x ^ (x >> 16)) >>> 0;
+    return (x / 4294967295) * 2 - 1;
+  }
+
+  function readLinearVelocity(body) {
+    const out = BABYLON.Vector3.Zero();
+    try {
+      if (body?.getLinearVelocityToRef) {
+        body.getLinearVelocityToRef(out);
+        return out;
+      }
+      if (body?.getLinearVelocity) return body.getLinearVelocity() || out;
+    } catch (_) {}
+    return out;
+  }
+
+  function applyImpactBoostIfNeeded() {
+    const cfg = C.throw.impactBoost;
+    if (!cfg?.enabled || !throwState.active || throwState.impactBoosted || !saka || !throwState.targetPoint) return;
+
+    const tp = throwState.targetPoint;
+    const dx = saka.position.x - tp.x;
+    const dz = saka.position.z - tp.z;
+    const horizontalDistance = Math.hypot(dx, dz);
+    if (saka.position.y > Number(cfg.triggerHeight || 0.72) || horizontalDistance > Number(cfg.triggerRadius || 0.48)) return;
+
+    const sakaVelocity = readLinearVelocity(sakaAggregate?.body);
+    if (sakaVelocity.y > 0.15) return;
+
+    throwState.impactBoosted = true;
+    const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
+    const radialSpeed = Math.max(0, Number(cfg.radialSpeed || 4.35));
+    const forwardSpeed = Math.max(0, Number(cfg.forwardSpeed || 1.15));
+    const liftSpeed = Math.max(0, Number(cfg.liftSpeed || 1.05));
+    const randomSpeed = Math.max(0, Number(cfg.randomSpeed || 0.72));
+    const forward = normalize2(throwState.guideDir?.x || 0, throwState.guideDir?.z || -1, 0, -1);
+
+    let affected = 0;
+    bodies.forEach((item, index) => {
+      if (!item || (item.role !== 'chuko' && item.role !== 'khan') || !item.mesh || !item.aggregate?.body) return;
+      const px = item.mesh.position.x - tp.x;
+      const pz = item.mesh.position.z - tp.z;
+      const dist = Math.hypot(px, pz);
+      if (dist > affectRadius) return;
+
+      const falloff = Math.pow(Math.max(0, 1 - dist / affectRadius), 0.58);
+      const radial = normalize2(px, pz, seededNoise(index + 7), seededNoise(index + 19));
+      const sideX = seededNoise(index + 31);
+      const sideZ = seededNoise(index + 47);
+      const factor = item.role === 'khan' ? Number(cfg.khanFactor || 0.92) : 1;
+      const current = readLinearVelocity(item.aggregate.body);
+
+      const added = new BABYLON.Vector3(
+        (radial.x * radialSpeed + forward.x * forwardSpeed + sideX * randomSpeed) * falloff * factor,
+        liftSpeed * (0.55 + 0.45 * falloff) * factor,
+        (radial.z * radialSpeed + forward.z * forwardSpeed + sideZ * randomSpeed) * falloff * factor
+      );
+      item.aggregate.body.setLinearVelocity(current.add(added));
+
+      const spin = 8.0 + 6.0 * falloff;
+      item.aggregate.body.setAngularVelocity(new BABYLON.Vector3(
+        seededNoise(index + 71) * spin,
+        seededNoise(index + 89) * spin * 0.65,
+        seededNoise(index + 103) * spin
+      ));
+      affected++;
+    });
+
+    ui.hint.textContent = affected
+      ? `Контакт · импульс передан ${affected} чүкө · смотрим дальность`
+      : 'Контакт · Havok';
   }
 
   function updateBodyCount() {
@@ -853,7 +957,9 @@
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
+      applyImpactBoostIfNeeded();
       if (saka && saka.position.y < -2.5) {
+        throwState.active = false;
         sakaAggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
         sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
         sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);

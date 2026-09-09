@@ -1,30 +1,34 @@
-# Что перенесено из ЧҮКӨ v20.61 в Modern 3D v0.4.2
+# ЧҮКӨ v20.61 -> Modern 3D v0.5 reference
 
-v20.61 остаётся эталоном игровой механики и UX броска. Modern 3D не копирует Matter.js-анимацию буквально, а переносит её смысл на настоящую 3D-физику Havok.
+The 2D v20.61 build remains the mechanical reference, but this prototype replaces Pixi/Matter movement with Babylon.js + Havok 3D physics.
 
-## Уже перенесено
+## Already carried over conceptually
 
-- 12 обычных чүкө + ХАН;
-- ХАН внутри компактной кучки;
-- крупная отдельная САКА со стороны игрока;
-- падение САКА сверху в кучку;
-- направление броска ограничено допустимым сектором;
-- pull жестом от САКА;
-- сила зависит от длины pull;
-- визуальный пунктир траектории;
-- точка падения напрямую управляется движением пальца внутри зоны кучки;
-- ручной бросок в v0.4.2 следует выбранной точке без случайного отклонения;
-- САКА не нацеливается на пустую часть поля: допустимая зона сейчас привязана к кучке.
+- 12 regular chuko plus KHAN in a compact pile;
+- SAKA starts outside/in front of the pile;
+- slingshot-style aiming;
+- aiming restricted to a zone that intersects the pile rather than empty field;
+- pull amount controls throw strength;
+- visible upper arc and top-down landing;
+- manual aim has no random deviation;
+- stronger scatter at the contact area;
+- SAKA/chuko/KHAN remain independent physical bodies after contact.
 
-## Отличие реализации
+## v20.61 values that inspired v0.5
 
-В v20.61 видимая верхняя дуга САКА рисуется отдельно от 2D Matter.js contact point. В Modern 3D v0.4.2 пунктир и сама САКА используют одну и ту же баллистическую формулу, а дальнейшее столкновение и разлёт рассчитывает Havok.
+v20.61 used, among other tuning values:
 
-## Следующие этапы
+- `impactBoost: 1.22`
+- `impactRadialFromContact: 10.2`
+- `impactForwardShare: 0.22`
+- `impactRandomScatter: 2.6`
+- `sakaFlightArcHeight: 190`
+- `sakaAirborneNoCollision: true`
 
-После утверждения управления и физики:
+The numerical units cannot be copied 1:1 because v20.61 is a 2D pixel/Matter world while v0.5 is a meter-like Babylon/Havok 3D world. The **behavioral intent** is copied instead.
 
-1. заменить proxy-формы на нормальные 3D-модели чүкө / ХАН / САКА;
-2. настроить сценарно управляемый результат поверх физики;
-3. вернуть логику билета и LMS adapter;
-4. добавить окружение, материалы, свет, звук и эффекты без потери мобильных 60 FPS.
+## Important difference
+
+v20.61 eventually has scenario-controlled visual results because it is a lottery game. v0.5 still has **no scenario layer**. The new contact boost does not select which pieces must leave the field; it only strengthens the local physical impact near the real landing point.
+
+The next stage, after the physical feel is accepted, is to replace procedural proxy bones with proper 3D assets while preserving this physics/aiming layer.
