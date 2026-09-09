@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#07131a" />
+  <title>ЧҮКӨ Modern 3D · prototype 0.1</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main id="app">
+    <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
+
+    <header class="hud top-safe">
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span></div>
+      <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
+    </header>
+
+    <section class="perf" id="perfPanel" aria-live="polite">
+      <div><span>FPS</span><strong id="fps">—</strong></div>
+      <div><span>frame</span><strong id="frameMs">— ms</strong></div>
+      <div><span>bodies</span><strong id="bodyCount">—</strong></div>
+      <div><span>scale</span><strong id="renderScale">—</strong></div>
+    </section>
+
+    <section class="hint" id="hint">САКА падает по физической дуге сверху в кучку</section>
+
+    <footer class="controls bottom-safe">
+      <button id="throwBtn" class="primary">БРОСИТЬ САКА</button>
+      <button id="resetBtn" class="secondary">СБРОС</button>
+      <div class="microcopy">Тап по полю тоже запускает бросок · LMS отключён</div>
+    </footer>
+
+    <div class="fatal" id="fatal" hidden>
+      <strong>Не удалось запустить 3D-прототип</strong>
+      <span id="fatalText"></span>
+    </div>
+  </main>
+
+  <!-- Prototype-only CDN dependencies. For production we will self-host/bundle them. -->
+  <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+  <script src="src/config.js"></script>
+  <script src="src/game.js"></script>
+</body>
+</html>
