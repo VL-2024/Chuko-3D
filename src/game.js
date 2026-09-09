@@ -26,6 +26,7 @@
   let resetTimer = 0;
   let lowFpsStartedAt = 0;
   let adaptiveScaleApplied = false;
+  let roundIndex = 0;
 
   function showFatal(error) {
     console.error(error);
@@ -61,32 +62,77 @@
     return m;
   }
 
-  function makeRoundedBone(name, dims, mat) {
-    // Simple prototype geometry: a stretched bevelled box made from a box + two low-poly caps.
-    const root = new BABYLON.TransformNode(`${name}-root`, scene);
-    const core = BABYLON.MeshBuilder.CreateBox(`${name}-core`, {
-      width: dims.width,
-      height: dims.height,
-      depth: dims.depth * 0.72
-    }, scene);
-    core.parent = root;
-    core.material = mat;
-
-    const capA = BABYLON.MeshBuilder.CreateSphere(`${name}-cap-a`, { diameter: 1, segments: 6 }, scene);
-    capA.scaling.set(dims.width * 0.52, dims.height * 0.52, dims.depth * 0.20);
-    capA.position.z = dims.depth * 0.36;
-    capA.parent = root;
-    capA.material = mat;
-
-    const capB = capA.clone(`${name}-cap-b`);
-    capB.position.z = -dims.depth * 0.36;
-    capB.parent = root;
-
-    const merged = BABYLON.Mesh.MergeMeshes([core, capA, capB], true, true, undefined, false, true);
+  function mergeParts(name, parts, mat) {
+    const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, true);
     merged.name = name;
-    root.dispose();
     merged.material = mat;
     return merged;
+  }
+
+  // v0.2 temporary low-poly silhouette: narrow middle + four asymmetric lobes.
+  // This is still a proxy, not the final scanned/modelled astragalus.
+  function makeChukoBone(name, dims, mat, khan = false) {
+    const parts = [];
+
+    const waist = BABYLON.MeshBuilder.CreateBox(`${name}-waist`, {
+      width: dims.width * 0.54,
+      height: dims.height * 0.70,
+      depth: dims.depth * 0.48
+    }, scene);
+    parts.push(waist);
+
+    const makeLobe = (suffix, x, y, z, sx, sy, sz) => {
+      const m = BABYLON.MeshBuilder.CreateSphere(`${name}-${suffix}`, {
+        diameter: 1,
+        segments: isMobile() ? 7 : 9
+      }, scene);
+      m.position.set(x, y, z);
+      m.scaling.set(sx, sy, sz);
+      parts.push(m);
+    };
+
+    makeLobe('head-a',  dims.width * 0.08,  0.00,  dims.depth * 0.29,
+      dims.width * 0.46, dims.height * 0.48, dims.depth * 0.25);
+    makeLobe('head-b', -dims.width * 0.09, -0.01, -dims.depth * 0.29,
+      dims.width * 0.42, dims.height * 0.44, dims.depth * 0.27);
+    makeLobe('knuckle-a', dims.width * 0.27, dims.height * 0.04, dims.depth * 0.02,
+      dims.width * 0.22, dims.height * 0.38, dims.depth * 0.18);
+    makeLobe('knuckle-b', -dims.width * 0.25, -dims.height * 0.03, -dims.depth * 0.08,
+      dims.width * 0.20, dims.height * 0.33, dims.depth * 0.19);
+
+    if (khan) {
+      makeLobe('crown', dims.width * 0.04, dims.height * 0.20, -dims.depth * 0.01,
+        dims.width * 0.20, dims.height * 0.24, dims.depth * 0.17);
+    }
+
+    return mergeParts(name, parts, mat);
+  }
+
+  function makeSakaBone(name, dims, mat) {
+    const parts = [];
+    const center = BABYLON.MeshBuilder.CreateSphere(`${name}-center`, {
+      diameter: 1,
+      segments: isMobile() ? 9 : 12
+    }, scene);
+    center.scaling.set(dims.width * 0.46, dims.height * 0.48, dims.depth * 0.38);
+    parts.push(center);
+
+    const a = BABYLON.MeshBuilder.CreateSphere(`${name}-a`, { diameter: 1, segments: isMobile() ? 8 : 10 }, scene);
+    a.position.set(dims.width * 0.08, 0, dims.depth * 0.30);
+    a.scaling.set(dims.width * 0.40, dims.height * 0.42, dims.depth * 0.26);
+    parts.push(a);
+
+    const b = BABYLON.MeshBuilder.CreateSphere(`${name}-b`, { diameter: 1, segments: isMobile() ? 8 : 10 }, scene);
+    b.position.set(-dims.width * 0.09, 0, -dims.depth * 0.30);
+    b.scaling.set(dims.width * 0.43, dims.height * 0.40, dims.depth * 0.27);
+    parts.push(b);
+
+    const side = BABYLON.MeshBuilder.CreateSphere(`${name}-side`, { diameter: 1, segments: 7 }, scene);
+    side.position.set(dims.width * 0.31, dims.height * 0.02, -dims.depth * 0.03);
+    side.scaling.set(dims.width * 0.20, dims.height * 0.30, dims.depth * 0.20);
+    parts.push(side);
+
+    return mergeParts(name, parts, mat);
   }
 
   function createEnvironment() {
@@ -94,25 +140,25 @@
 
     const camera = new BABYLON.ArcRotateCamera(
       'camera',
-      Math.PI / 2,
-      isMobile() ? 1.06 : 1.00,
-      isMobile() ? 8.9 : 8.2,
-      new BABYLON.Vector3(0, 0.2, 0.15),
+      C.camera.alpha,
+      isMobile() ? C.camera.betaMobile : C.camera.betaDesktop,
+      isMobile() ? C.camera.radiusMobile : C.camera.radiusDesktop,
+      new BABYLON.Vector3(C.camera.target.x, C.camera.target.y, C.camera.target.z),
       scene
     );
-    camera.lowerRadiusLimit = 7.2;
-    camera.upperRadiusLimit = 10.5;
+    camera.lowerRadiusLimit = 7.0;
+    camera.upperRadiusLimit = 10.0;
     camera.lowerBetaLimit = 0.72;
-    camera.upperBetaLimit = 1.25;
+    camera.upperBetaLimit = 1.20;
     camera.inputs.clear();
 
     const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.2, 1, 0.1), scene);
-    hemi.intensity = 1.25;
+    hemi.intensity = 1.22;
     hemi.groundColor = new BABYLON.Color3(0.07, 0.08, 0.065);
 
     const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.35, -1, 0.45), scene);
     sun.position = new BABYLON.Vector3(4, 8, -5);
-    sun.intensity = 2.0;
+    sun.intensity = 1.9;
 
     const shadowMapSize = isMobile() ? 512 : 1024;
     const shadows = new BABYLON.ShadowGenerator(shadowMapSize, sun);
@@ -120,7 +166,7 @@
     shadows.bias = 0.002;
     scene.metadata = { shadows };
 
-    const fieldMat = material('fieldMat', new BABYLON.Color3(0.32, 0.49, 0.26), 0.95, 0.0);
+    const fieldMat = material('fieldMat', new BABYLON.Color3(0.34, 0.50, 0.28), 0.96, 0.0);
     field = BABYLON.MeshBuilder.CreateCylinder('field', {
       height: C.field.thickness,
       diameter: C.field.visualRadius * 2,
@@ -140,20 +186,20 @@
     const fieldAggregate = new BABYLON.PhysicsAggregate(
       fieldPhysicsMesh,
       BABYLON.PhysicsShapeType.CYLINDER,
-      { mass: 0, friction: 0.85, restitution: 0.18 },
+      { mass: 0, friction: 0.78, restitution: 0.10 },
       scene
     );
     bodies.push({ mesh: fieldPhysicsMesh, aggregate: fieldAggregate, permanent: true });
 
-    // Low rim catches most prototype pieces while still allowing energetic ejections.
+    // В v0.2 визуальный бортик ниже: разлёт лучше читается и край меньше похож на стену.
     const rimMat = material('rimMat', new BABYLON.Color3(0.61, 0.70, 0.38), 0.8, 0.05);
     const rim = BABYLON.MeshBuilder.CreateTorus('rim', {
-      diameter: C.field.radius * 2 + 0.16,
-      thickness: 0.10,
+      diameter: C.field.radius * 2 + 0.14,
+      thickness: 0.075,
       tessellation: 64
     }, scene);
     rim.rotation.x = Math.PI / 2;
-    rim.position.y = 0.055;
+    rim.position.y = 0.025;
     rim.material = rimMat;
     rim.receiveShadows = true;
 
@@ -163,14 +209,13 @@
     ground.material = groundMat;
     ground.receiveShadows = true;
 
-    // Use a real thin box for physics instead of a zero-thickness Ground mesh.
     const groundPhysicsMesh = BABYLON.MeshBuilder.CreateBox('ground-physics', { width: 25, depth: 25, height: 0.18 }, scene);
     groundPhysicsMesh.position.y = -0.31;
     groundPhysicsMesh.isVisible = false;
     const groundAggregate = new BABYLON.PhysicsAggregate(
       groundPhysicsMesh,
       BABYLON.PhysicsShapeType.BOX,
-      { mass: 0, friction: 0.85, restitution: 0.1 },
+      { mass: 0, friction: 0.82, restitution: 0.06 },
       scene
     );
     bodies.push({ mesh: groundPhysicsMesh, aggregate: groundAggregate, permanent: true });
@@ -181,17 +226,18 @@
     if (shadows && mesh) shadows.addShadowCaster(mesh, true);
   }
 
-  function createPiece(name, dims, pos, color, isKhan = false) {
-    const mat = material(`${name}-mat`, color, isKhan ? 0.42 : 0.72, isKhan ? 0.46 : 0.05);
-    const mesh = makeRoundedBone(name, dims, mat);
+  function createPiece(name, dims, pos, color, isKhan = false, yaw = 0) {
+    const mat = material(`${name}-mat`, color, isKhan ? 0.38 : 0.73, isKhan ? 0.50 : 0.04);
+    const mesh = makeChukoBone(name, dims, mat, isKhan);
     mesh.position.copyFrom(pos);
     mesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
-      (Math.random() - 0.5) * 0.18,
-      Math.random() * Math.PI,
-      (Math.random() - 0.5) * 0.16
+      (Math.random() - 0.5) * C.pile.angleJitter,
+      yaw + (Math.random() - 0.5) * C.pile.angleJitter,
+      (Math.random() - 0.5) * C.pile.angleJitter
     );
     addShadow(mesh);
 
+    // Box proxy keeps 13 dynamic pile bodies cheap and stable on phones.
     const aggregate = new BABYLON.PhysicsAggregate(
       mesh,
       BABYLON.PhysicsShapeType.BOX,
@@ -218,55 +264,69 @@
     sakaAggregate = null;
   }
 
+  function pilePositions() {
+    // World-space analogue of the approved compact v20.61 4×3 layout.
+    const sx = C.pile.spreadX;
+    const sz = C.pile.spreadZ;
+    return [
+      [-0.86*sx,-0.56*sz],[-0.29*sx,-0.68*sz],[ 0.29*sx,-0.68*sz],[ 0.86*sx,-0.56*sz],
+      [-1.02*sx,-0.03*sz],[-0.48*sx,-0.02*sz],[ 0.48*sx,-0.02*sz],[ 1.02*sx,-0.03*sz],
+      [-0.86*sx, 0.50*sz],[-0.29*sx, 0.60*sz],[ 0.29*sx, 0.60*sz],[ 0.86*sx, 0.50*sz]
+    ];
+  }
+
   function resetRound() {
     clearRoundBodies();
     thrown = false;
+    roundIndex++;
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'САКА падает по физической дуге сверху в кучку';
+    ui.hint.textContent = 'Высокая физическая дуга → удар сверху в центр кучки';
     ui.hint.style.opacity = '1';
 
     const chukoColors = [
-      new BABYLON.Color3(0.74,0.67,0.54),
-      new BABYLON.Color3(0.62,0.57,0.45),
-      new BABYLON.Color3(0.80,0.72,0.57)
+      new BABYLON.Color3(0.77,0.70,0.57),
+      new BABYLON.Color3(0.66,0.60,0.48),
+      new BABYLON.Color3(0.83,0.75,0.61)
     ];
 
-    const n = C.pile.chukoCount;
-    for (let i = 0; i < n; i++) {
-      const angle = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
-      const ring = i < 4 ? 0.34 : (0.50 + Math.random() * C.pile.spreadRadius * 0.48);
-      const x = Math.cos(angle) * ring + (Math.random() - 0.5) * 0.12;
-      const z = Math.sin(angle) * ring + C.pile.offsetZ + (Math.random() - 0.5) * 0.12;
-      const d = C.pieces.chuko;
+    const positions = pilePositions();
+    const d = C.pieces.chuko;
+    positions.forEach(([px, pz], i) => {
+      const jitter = C.pile.positionJitter;
+      const x = px + (Math.random() - 0.5) * jitter * 2;
+      const z = C.pile.offsetZ + pz + (Math.random() - 0.5) * jitter * 2;
+      // Alternating directions make the pile look irregular without spawning overlaps.
+      const yaw = (i % 2 ? 0.78 : -0.72) + (i % 4 - 1.5) * 0.10;
       createPiece(
         `chuko-${i+1}`,
         d,
-        new BABYLON.Vector3(x, d.height * 0.60, z),
-        chukoColors[i % chukoColors.length]
+        new BABYLON.Vector3(x, d.height * 0.56, z),
+        chukoColors[i % chukoColors.length],
+        false,
+        yaw
       );
-    }
+    });
 
+    // KHAN now lies in the empty centre of the 12-piece layout.
     const kd = C.pieces.khan;
     createPiece(
       'KHAN',
       kd,
-      new BABYLON.Vector3(0.03, kd.height * 0.64, C.pile.offsetZ - 0.03),
-      new BABYLON.Color3(0.95, 0.67, 0.12),
-      true
+      new BABYLON.Vector3(0.0, kd.height * 0.54, C.pile.offsetZ - 0.01),
+      new BABYLON.Color3(0.98, 0.62, 0.07),
+      true,
+      0.58
     );
 
     const sd = C.pieces.saka;
-    const sakaMat = material('saka-mat', new BABYLON.Color3(0.10, 0.43, 0.92), 0.34, 0.22);
-    saka = BABYLON.MeshBuilder.CreateSphere('SAKA', {
-      diameter: sd.diameter,
-      segments: isMobile() ? 12 : 18
-    }, scene);
-    saka.scaling.set(1.0, 0.78, 1.12);
+    const sakaMat = material('saka-mat', new BABYLON.Color3(0.08, 0.39, 0.92), 0.30, 0.25);
+    saka = makeSakaBone('SAKA', sd, sakaMat);
     saka.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
-    saka.material = sakaMat;
+    saka.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0.18, -0.45, 0.12);
     addShadow(saka);
 
+    // Mobile-friendly spherical proxy for the throw; visual mesh is irregular.
     sakaAggregate = new BABYLON.PhysicsAggregate(
       saka,
       BABYLON.PhysicsShapeType.SPHERE,
@@ -279,13 +339,11 @@
     );
     bodies.push({ mesh: saka, aggregate: sakaAggregate });
 
-    // Keep SAKA parked before the user throws it.
     sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
     updateBodyCount();
   }
 
   function ballisticVelocity(start, target, flightTime, gravityY) {
-    // target = start + v*t + 1/2*g*t^2
     const g = new BABYLON.Vector3(0, gravityY, 0);
     return target.subtract(start).subtract(g.scale(0.5 * flightTime * flightTime)).scale(1 / flightTime);
   }
@@ -295,13 +353,13 @@
     thrown = true;
     ui.throwBtn.disabled = true;
     ui.throwBtn.textContent = 'САКА В ПОЛЁТЕ…';
-    ui.hint.textContent = 'Реальная баллистика Havok: подъём → падение сверху → столкновение';
+    ui.hint.textContent = 'Havok: высокая дуга → ускорение вниз → физический контакт';
 
     const jitter = C.throw.targetJitter;
     const target = new BABYLON.Vector3(
       (Math.random() - 0.5) * jitter * 2,
       C.throw.targetY,
-      C.pile.offsetZ + (Math.random() - 0.5) * jitter * 1.1
+      C.pile.offsetZ + (Math.random() - 0.5) * jitter * 0.75
     );
     const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
 
@@ -313,15 +371,15 @@
     const v = ballisticVelocity(start, target, C.throw.flightTime, C.physics.gravity);
     sakaAggregate.body.setLinearVelocity(v);
     sakaAggregate.body.setAngularVelocity(new BABYLON.Vector3(
-      -C.throw.sideSpin * 0.55,
-      C.throw.sideSpin * 0.20,
+      -C.throw.sideSpin * 0.60,
+      C.throw.sideSpin * 0.24,
       C.throw.sideSpin
     ));
 
     resetTimer = window.setTimeout(() => {
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
-      ui.hint.textContent = 'Нажмите «Ещё бросок» — кучка будет собрана заново';
+      ui.hint.textContent = 'Ещё бросок соберёт тестовую кучку заново';
     }, C.throw.settleMs);
   }
 
@@ -370,7 +428,6 @@
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
-      // If SAKA leaves the test area, stop it from running away forever.
       if (saka && saka.position.y < -2.5) {
         sakaAggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
         sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
@@ -392,7 +449,6 @@
     });
     ui.resetBtn.addEventListener('click', resetRound);
 
-    // Tap/click in the upper play area launches the throw; controls remain untouched.
     ui.canvas.addEventListener('pointerup', (event) => {
       if (event.clientY < innerHeight * 0.78 && !thrown) throwSaka();
     }, { passive: true });
