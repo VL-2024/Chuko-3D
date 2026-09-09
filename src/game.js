@@ -41,7 +41,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.13: dynamic round objects are created once and reused on every reset.
+  // v0.8.14: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
@@ -489,7 +489,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.13: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.14: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -603,7 +603,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.13 pooling/reset -------------------------------------------------------
+  // v0.8.14 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -727,7 +727,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.13 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.14 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -789,7 +789,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.13] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.14] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -951,11 +951,43 @@
     if (aimTarget) aimTarget.setEnabled(false);
   }
 
+  function ballisticTargetYForAim() {
+    // The marker represents the intended impact/contact point, not the later
+    // geometric center position after SAKA has already touched the pile.
+    return Number(C.throw.contactAimY || C.throw.targetY || 0.30);
+  }
+
+  function correctFinalApproachToAim() {
+    if (!throwState.active || !throwState.targetPoint || !saka || !sakaAggregate?.body) return;
+    const velocity = readLinearVelocity(sakaAggregate.body);
+    if (velocity.y >= -0.05) return;
+
+    const contactY = ballisticTargetYForAim();
+    const startY = Number(C.throw.finalApproachStartY || 1.05);
+    if (saka.position.y > startY || saka.position.y <= contactY - 0.08) return;
+
+    const g = Math.max(0.001, Math.abs(C.physics.gravity));
+    const dy = saka.position.y - contactY;
+    // Solve dy + vy*t - 0.5*g*t^2 = 0 for the positive future root.
+    const disc = velocity.y * velocity.y + 2 * g * Math.max(0, dy);
+    let t = (velocity.y + Math.sqrt(Math.max(0, disc))) / g;
+    if (!Number.isFinite(t) || t <= 0) t = Math.sqrt(Math.max(0.001, 2 * Math.max(0, dy) / g));
+    t = Math.max(Number(C.throw.finalApproachMinTime || 0.055), t);
+
+    const tp = throwState.targetPoint;
+    const maxSpeed = Math.max(1, Number(C.throw.finalApproachMaxSpeed || 6.2));
+    const vx = Math.max(-maxSpeed, Math.min(maxSpeed, (tp.x - saka.position.x) / t));
+    const vz = Math.max(-maxSpeed, Math.min(maxSpeed, (tp.z - saka.position.z) / t));
+
+    // Preserve vertical Havok motion/spin and only correct X/Z for precise contact.
+    sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(vx, velocity.y, vz));
+  }
+
   function updateAimVisuals(target2, power) {
     if (!saka || !aimDots.length) return;
     const s0 = throwStartPoint();
     const start = new BABYLON.Vector3(s0.x, s0.y, s0.z);
-    const target = new BABYLON.Vector3(target2.x, C.throw.targetY, target2.z);
+    const target = new BABYLON.Vector3(target2.x, ballisticTargetYForAim(), target2.z);
     const ballistic = ballisticForApex(start, target, power);
     const flightTime = ballistic.flightTime;
     const v = ballistic.velocity;
@@ -1150,7 +1182,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.13 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.14 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1195,7 +1227,7 @@
       landingPoint = actual.point;
     }
 
-    const target = new BABYLON.Vector3(landingPoint.x, C.throw.targetY, landingPoint.z);
+    const target = new BABYLON.Vector3(landingPoint.x, ballisticTargetYForAim(), landingPoint.z);
     const s0 = throwStartPoint();
     const start = new BABYLON.Vector3(s0.x, s0.y, s0.z);
     const ballistic = ballisticForApex(start, target, power);
@@ -1209,7 +1241,7 @@
       flightTime: ballistic.flightTime
     };
 
-    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · сверху в точку · Havok`;
+    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · точный контакт · Havok`;
 
     // Pile remains STATIC after launch; onBeforeRender releases it only when SAKA is almost touching it.
     pileReleasedForThrow = false;
@@ -1231,7 +1263,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.13 · кучка отпускается в кадр перед контактом ⚙';
+      ui.hint.textContent = 'v0.8.14 · кучка отпускается в кадр перед контактом ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1361,6 +1393,7 @@
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
+      correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
       if (saka && saka.position.y < -2.5) {

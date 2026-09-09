@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.8.13',
+  version: '0.8.14',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -64,6 +64,10 @@ window.CHUKO3D_CONFIG = Object.freeze({
   throw: {
     start: { x: 0.72, y: 0.70, z: 2.85 },
     targetY: 0.30,
+    contactAimY: 0.54,
+    finalApproachStartY: 1.05,
+    finalApproachMinTime: 0.055,
+    finalApproachMaxSpeed: 6.2,
 
     // v0.5: дуга задаётся через реальную высоту апекса.
     // Это делает полёт визуально стабильнее: САКА действительно поднимается
