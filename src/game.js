@@ -260,10 +260,10 @@
   function createBackdropPhoto() {
     // Use the uploaded v20.61 background almost literally.
     const aspect = 941 / 1672;
-    const height = 18.8;
+    const height = 19.6;
     const width = height * aspect;
     const plane = BABYLON.MeshBuilder.CreatePlane('photo-backdrop', { width, height }, scene);
-    plane.position.set(-3.75, 4.25, -10.8);
+    plane.position.set(-1.10, 4.55, -12.3);
     plane.rotation.y = 0.0;
     plane.isPickable = false;
 
@@ -286,7 +286,7 @@
     const grad = fctx.createLinearGradient(0, 0, 0, 256);
     grad.addColorStop(0.0, 'rgba(0,0,0,0.0)');
     grad.addColorStop(0.7, 'rgba(10,8,7,0.08)');
-    grad.addColorStop(1.0, 'rgba(10,8,7,0.40)');
+    grad.addColorStop(1.0, 'rgba(10,8,7,0.22)');
     fctx.fillStyle = grad;
     fctx.fillRect(0, 0, 8, 256);
     fadeTex.update(false);
@@ -297,8 +297,8 @@
     fadeMat.emissiveColor = new BABYLON.Color3(0.04, 0.03, 0.02);
     fadeMat.backFaceCulling = false;
     fadeMat.fogEnabled = false;
-    const fade = BABYLON.MeshBuilder.CreatePlane('photo-backdrop-fade', { width: width * 1.02, height: height * 0.28 }, scene);
-    fade.position.set(-3.75, -1.6, -10.7);
+    const fade = BABYLON.MeshBuilder.CreatePlane('photo-backdrop-fade', { width: width * 1.02, height: height * 0.22 }, scene);
+    fade.position.set(-1.10, -2.1, -12.2);
     fade.material = fadeMat;
     fade.isPickable = false;
     freezeStatic(fade);
@@ -308,10 +308,10 @@
   function createFieldVisual() {
     // Field from v20.61 is used directly as the main arena image.
     const aspect = 1448 / 1086;
-    const width = 8.9;
+    const width = 6.35;
     const height = width / aspect;
     const plane = BABYLON.MeshBuilder.CreatePlane('field-visual', { width, height }, scene);
-    plane.position.set(-0.02, 0.38, -1.05);
+    plane.position.set(0.00, 0.52, -1.55);
     plane.isPickable = false;
     plane.renderingGroupId = 0;
 
@@ -352,7 +352,7 @@
     camera.lowerBetaLimit = 0.72;
     camera.upperBetaLimit = 1.20;
     camera.inputs.clear();
-    camera.fov = 0.72;
+    camera.fov = 0.67;
 
     const skyTex = createSkyGradientTexture();
     const skyMat = new BABYLON.StandardMaterial('sky-mat', scene);
