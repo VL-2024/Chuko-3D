@@ -8,15 +8,21 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · prototype 0.8.3</title>
-  <link rel="stylesheet" href="styles.css?v=0.8.3" />
+  <title>ЧҮКӨ Modern 3D · prototype 0.8.4</title>
+  <link rel="stylesheet" href="styles.css?v=0.8.4" />
 </head>
 <body>
   <main id="app">
+    <div class="art-stack" aria-hidden="true">
+      <img class="bg-photo" src="assets/background-realistic.webp" alt="" />
+      <img class="field-photo" src="assets/field-realistic.webp" alt="" />
+      <div class="art-vignette"></div>
+    </div>
+
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
 
     <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.8.3</em></div>
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.8.4</em></div>
       <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
     </header>
 
@@ -42,10 +48,9 @@
     </div>
   </main>
 
-  <!-- Prototype-only CDN dependencies. For production we will self-host/bundle them. -->
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.8.3"></script>
-  <script src="src/game.js?v=0.8.3"></script>
+  <script src="src/config.js?v=0.8.4"></script>
+  <script src="src/game.js?v=0.8.4"></script>
 </body>
 </html>

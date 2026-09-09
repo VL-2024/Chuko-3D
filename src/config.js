@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.8.3',
+  version: '0.8.4',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -12,8 +12,8 @@ window.CHUKO3D_CONFIG = Object.freeze({
   // а не разбрасывает стартовую раскладку по всему полю.
   pile: {
     chukoCount: 12,
-    offsetZ: -0.42,
-    spreadX: 0.78,
+    offsetZ: -0.36,
+    spreadX: 0.74,
     spreadZ: 0.54,
     positionJitter: 0.09,
     angleJitter: 0.42,
@@ -62,7 +62,7 @@ window.CHUKO3D_CONFIG = Object.freeze({
   },
 
   throw: {
-    start: { x: 0.72, y: 0.72, z: 2.85 },
+    start: { x: 0.76, y: 0.72, z: 2.95 },
     targetY: 0.30,
 
     // v0.5: дуга задаётся через реальную высоту апекса.
@@ -109,9 +109,9 @@ window.CHUKO3D_CONFIG = Object.freeze({
     alpha: Math.PI / 2,
     betaMobile: 1.00,
     betaDesktop: 0.96,
-    radiusMobile: 8.25,
-    radiusDesktop: 7.85,
-    target: { x: 0, y: 0.18, z: -0.10 }
+    radiusMobile: 8.45,
+    radiusDesktop: 8.00,
+    target: { x: 0, y: 0.14, z: -0.02 }
   },
 
   mobile: {

@@ -34,7 +34,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.2: dynamic round objects are created once and reused on every reset.
+  // v0.8.4: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
@@ -243,100 +243,25 @@
 
   function createSkyGradientTexture() {
     const size = Math.max(128, Number(C.environment?.skyTextureSize || 256));
-    const tex = new BABYLON.DynamicTexture('sky-gradient', { width: 16, height: size }, scene, false);
+    const tex = new BABYLON.DynamicTexture('sky-gradient', { width: 8, height: size }, scene, false);
     const ctx = tex.getContext();
     const grad = ctx.createLinearGradient(0, 0, 0, size);
-    grad.addColorStop(0.0, '#111111');
-    grad.addColorStop(0.65, '#1e1c1b');
-    grad.addColorStop(1.0, '#2b2725');
+    grad.addColorStop(0.0, '#000000');
+    grad.addColorStop(1.0, '#000000');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 16, size);
+    ctx.fillRect(0, 0, 8, size);
     tex.update(false);
-    tex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
     return tex;
   }
 
-  function createBackdropPhoto() {
-    // Use the uploaded v20.61 background almost literally.
-    const aspect = 941 / 1672;
-    const height = 19.6;
-    const width = height * aspect;
-    const plane = BABYLON.MeshBuilder.CreatePlane('photo-backdrop', { width, height }, scene);
-    plane.position.set(-1.10, 4.55, -12.3);
-    plane.rotation.y = 0.0;
-    plane.isPickable = false;
-
-    const tex = new BABYLON.Texture('assets/background-realistic.webp', scene, true, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-    tex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-    tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-
-    const mat = new BABYLON.StandardMaterial('photo-backdrop-mat', scene);
-    mat.diffuseTexture = tex;
-    mat.emissiveTexture = tex;
-    mat.disableLighting = true;
-    mat.specularColor = BABYLON.Color3.Black();
-    mat.fogEnabled = false;
-    plane.material = mat;
-    freezeStatic(plane);
-
-    // Soften the lower seam while preserving the original art.
-    const fadeTex = new BABYLON.DynamicTexture('backdrop-fade-tex', { width: 8, height: 256 }, scene, false);
-    const fctx = fadeTex.getContext();
-    const grad = fctx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0.0, 'rgba(0,0,0,0.0)');
-    grad.addColorStop(0.7, 'rgba(10,8,7,0.08)');
-    grad.addColorStop(1.0, 'rgba(10,8,7,0.22)');
-    fctx.fillStyle = grad;
-    fctx.fillRect(0, 0, 8, 256);
-    fadeTex.update(false);
-    const fadeMat = new BABYLON.StandardMaterial('backdrop-fade-mat', scene);
-    fadeMat.diffuseTexture = fadeTex;
-    fadeMat.opacityTexture = fadeTex;
-    fadeMat.disableLighting = true;
-    fadeMat.emissiveColor = new BABYLON.Color3(0.04, 0.03, 0.02);
-    fadeMat.backFaceCulling = false;
-    fadeMat.fogEnabled = false;
-    const fade = BABYLON.MeshBuilder.CreatePlane('photo-backdrop-fade', { width: width * 1.02, height: height * 0.22 }, scene);
-    fade.position.set(-1.10, -2.1, -12.2);
-    fade.material = fadeMat;
-    fade.isPickable = false;
-    freezeStatic(fade);
-    return plane;
-  }
-
-  function createFieldVisual() {
-    // Field from v20.61 is used directly as the main arena image.
-    const aspect = 1448 / 1086;
-    const width = 6.35;
-    const height = width / aspect;
-    const plane = BABYLON.MeshBuilder.CreatePlane('field-visual', { width, height }, scene);
-    plane.position.set(0.00, 0.52, -1.55);
-    plane.isPickable = false;
-    plane.renderingGroupId = 0;
-
-    const tex = new BABYLON.Texture('assets/field-realistic.webp', scene, true, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-    const mat = new BABYLON.StandardMaterial('field-visual-mat', scene);
-    mat.diffuseTexture = tex;
-    mat.emissiveTexture = tex;
-    mat.opacityTexture = tex;
-    mat.useAlphaFromDiffuseTexture = true;
-    mat.disableLighting = true;
-    mat.backFaceCulling = false;
-    mat.specularColor = BABYLON.Color3.Black();
-    plane.material = mat;
-    freezeStatic(plane);
-    return plane;
-  }
-
   function createEnvironment() {
-    scene.clearColor = new BABYLON.Color4(0.01, 0.01, 0.01, 1);
-
+    // v0.8.4: background and field are now DOM/CSS layers, not Babylon meshes.
+    // Babylon is used only for 3D pieces, trajectory and physics.
+    scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
     scene.imageProcessingConfiguration.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
-    scene.imageProcessingConfiguration.exposure = 1.0;
-    scene.imageProcessingConfiguration.contrast = 1.02;
-
+    scene.imageProcessingConfiguration.exposure = 1.02;
+    scene.imageProcessingConfiguration.contrast = 1.04;
     scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
 
     const camera = new BABYLON.ArcRotateCamera(
@@ -347,39 +272,22 @@
       new BABYLON.Vector3(C.camera.target.x, C.camera.target.y, C.camera.target.z),
       scene
     );
-    camera.lowerRadiusLimit = 7.0;
-    camera.upperRadiusLimit = 10.0;
+    camera.lowerRadiusLimit = 7.2;
+    camera.upperRadiusLimit = 10.2;
     camera.lowerBetaLimit = 0.72;
     camera.upperBetaLimit = 1.20;
+    camera.fov = 0.69;
     camera.inputs.clear();
-    camera.fov = 0.67;
 
-    const skyTex = createSkyGradientTexture();
-    const skyMat = new BABYLON.StandardMaterial('sky-mat', scene);
-    skyMat.disableLighting = true;
-    skyMat.emissiveTexture = skyTex;
-    skyMat.backFaceCulling = false;
-    skyMat.fogEnabled = false;
-    const sky = BABYLON.MeshBuilder.CreateSphere('sky', {
-      diameter: 34,
-      segments: isMobile() ? 12 : 18,
-      sideOrientation: BABYLON.Mesh.BACKSIDE
-    }, scene);
-    sky.material = skyMat;
-    sky.infiniteDistance = true;
-    sky.isPickable = false;
-    sky.applyFog = false;
-    skyMat.freeze();
+    const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.0, 1, -0.05), scene);
+    hemi.intensity = 0.92;
+    hemi.diffuse = new BABYLON.Color3(0.95, 0.92, 0.84);
+    hemi.groundColor = new BABYLON.Color3(0.24, 0.18, 0.12);
 
-    const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.1, 1, -0.05), scene);
-    hemi.intensity = 0.85;
-    hemi.diffuse = new BABYLON.Color3(0.95, 0.89, 0.80);
-    hemi.groundColor = new BABYLON.Color3(0.25, 0.18, 0.11);
-
-    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.48, -1, 0.30), scene);
+    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.46, -1, 0.30), scene);
     sun.position = new BABYLON.Vector3(5, 8, -7);
-    sun.intensity = 1.65;
-    sun.diffuse = new BABYLON.Color3(1.0, 0.83, 0.62);
+    sun.intensity = 1.58;
+    sun.diffuse = new BABYLON.Color3(1.0, 0.83, 0.60);
 
     const shadowMapSize = isMobile() ? 512 : 1024;
     const shadows = new BABYLON.ShadowGenerator(shadowMapSize, sun);
@@ -387,10 +295,7 @@
     shadows.bias = 0.0018;
     scene.metadata = { shadows };
 
-    createBackdropPhoto();
-    createFieldVisual();
-
-    // Only invisible collision geometry remains 3D here. Visual field comes from the uploaded image.
+    // Invisible collision arena. The user sees the original 2D field image in the DOM.
     field = BABYLON.MeshBuilder.CreateCylinder('field', {
       height: C.field.thickness,
       diameter: C.field.visualRadius * 2,
@@ -414,14 +319,9 @@
     );
     bodies.push({ mesh: fieldPhysicsMesh, aggregate: fieldAggregate, permanent: true });
 
-    // Far-below safety ground: invisible during play, only catches pieces that fully leave the arena.
-    const ground = BABYLON.MeshBuilder.CreateGround('ground', { width: 25, height: 25 }, scene);
-    ground.position.y = -3.2;
-    ground.isVisible = false;
-    freezeStatic(ground);
-
+    // Safety floor, placed well below the visible play area.
     const groundPhysicsMesh = BABYLON.MeshBuilder.CreateBox('ground-physics', { width: 25, depth: 25, height: 0.18 }, scene);
-    groundPhysicsMesh.position.y = -3.3;
+    groundPhysicsMesh.position.y = -3.4;
     groundPhysicsMesh.isVisible = false;
     const groundAggregate = new BABYLON.PhysicsAggregate(
       groundPhysicsMesh,
@@ -469,7 +369,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.2 pooling/reset -------------------------------------------------------
+  // v0.8.4 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -589,7 +489,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.2 · pooled reset · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.4 · pooled reset · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -1008,7 +908,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.2 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.4 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1085,7 +985,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.2 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
+      ui.hint.textContent = 'v0.8.4 · pooled reset · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
@@ -1198,6 +1098,8 @@
       stencil: false,
       disableWebGL2Support: false,
       antialias: true,
+      alpha: true,
+      premultipliedAlpha: false,
       powerPreference: 'high-performance'
     });
     configureRenderScale();

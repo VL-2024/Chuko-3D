@@ -5,9 +5,17 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 * { box-sizing: border-box; }
-html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #07131a; }
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
 body { overscroll-behavior: none; }
-#renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+#app { position: relative; isolation: isolate; }
+.art-stack { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: #000; }
+.bg-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; }
+.field-photo { position: absolute; left: 50%; bottom: calc(92px + var(--safe-bottom)); transform: translateX(-50%); width: min(108vw, 720px); max-width: none; height: auto; }
+.art-vignette { position: absolute; inset: 0; background:
+  linear-gradient(180deg, rgba(4,10,16,.38), rgba(4,10,16,0) 18%),
+  linear-gradient(0deg, rgba(3,11,15,.54), rgba(3,11,15,0) 18%);
+}
+#renderCanvas { position: fixed; inset: 0; z-index: 1; width: 100%; height: 100%; display: block; outline: none; touch-action: none; background: transparent; }
 .hud { position: fixed; z-index: 5; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; padding: calc(12px + var(--safe-top)) 14px 10px; pointer-events: none; background: linear-gradient(180deg, rgba(3,11,15,.72), rgba(3,11,15,0)); }
 .brand { font-size: 15px; font-weight: 800; letter-spacing: .025em; text-shadow: 0 2px 10px rgba(0,0,0,.5); }
 .brand b { font-size: 24px; letter-spacing: -.04em; }
@@ -28,13 +36,12 @@ button:disabled { opacity: .42; cursor: default; }
 .fatal { position: fixed; z-index: 20; inset: 50% auto auto 50%; transform: translate(-50%,-50%); width: min(88vw, 520px); padding: 20px; border-radius: 18px; background: rgba(35,8,8,.94); border: 1px solid rgba(255,110,110,.5); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 .fatal strong, .fatal span { display: block; }
 .fatal span { margin-top: 8px; opacity: .8; font-size: 12px; line-height: 1.45; }
-@media (orientation: landscape) and (max-height: 620px) {
-  .controls { left: auto; width: min(390px, 44vw); }
-  .hint { bottom: 18px; left: 24px; transform: none; width: min(45vw, 430px); text-align: left; }
-  .perf { top: calc(48px + var(--safe-top)); }
-}
 .aim-power { position: fixed; z-index: 6; left: 50%; bottom: calc(154px + var(--safe-bottom)); transform: translateX(-50%); padding: 7px 11px; border-radius: 999px; background: rgba(3,12,16,.72); border: 1px solid rgba(228,238,62,.34); backdrop-filter: blur(9px); pointer-events: none; font-size: 10px; font-weight: 800; letter-spacing: .07em; }
 .aim-power strong { margin-left: 5px; color: #e4ee3e; font-size: 12px; }
 @media (orientation: landscape) and (max-height: 620px) {
+  .field-photo { width: min(74vw, 980px); bottom: 12px; }
+  .controls { left: auto; width: min(390px, 44vw); }
+  .hint { bottom: 18px; left: 24px; transform: none; width: min(45vw, 430px); text-align: left; }
+  .perf { top: calc(48px + var(--safe-top)); }
   .aim-power { left: 24px; bottom: 54px; transform: none; }
 }
