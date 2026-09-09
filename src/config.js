@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.3',
+  version: '0.4',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -8,8 +8,8 @@ window.CHUKO3D_CONFIG = Object.freeze({
     visualRadius: 3.42
   },
 
-  // v0.3: кучка стала объёмнее и менее 'разложенной по сетке'.
-  // ХАН остаётся внутри, но чүкө получают небольшую высоту/наклон и оседают Havok-ом.
+  // Кучка остаётся компактной: управление броском меняет точку контакта,
+  // а не разбрасывает стартовую раскладку по всему полю.
   pile: {
     chukoCount: 12,
     offsetZ: -0.42,
@@ -21,32 +21,48 @@ window.CHUKO3D_CONFIG = Object.freeze({
   },
 
   pieces: {
-    // Пропорции всё ещё proxy, но силуэт теперь ближе к реальному альчику.
-    // В v0.3 BOX/SPHERE collision заменён на CONVEX_HULL для более естественного кувыркания.
-    chuko: { width: 0.42, height: 0.30, depth: 0.72, mass: 0.13 },
-    khan:  { width: 0.47, height: 0.33, depth: 0.79, mass: 0.17 },
-    saka:  { width: 0.62, height: 0.43, depth: 0.88, mass: 0.50 }
+    chuko: { width: 0.42, height: 0.30, depth: 0.72, mass: 0.11 },
+    khan:  { width: 0.47, height: 0.33, depth: 0.79, mass: 0.15 },
+    saka:  { width: 0.62, height: 0.43, depth: 0.88, mass: 0.68 }
   },
 
   physics: {
     gravity: -9.81,
-    // Чуть меньше сцепления и отскока, чем в v0.1: удар жёстче,
-    // чүкө легче переворачиваются и не превращаются в резиновые бруски.
-    friction: 0.50,
-    restitution: 0.20,
-    sakaFriction: 0.34,
-    sakaRestitution: 0.25
+    // v0.4: меньше сцепления с полем + более тяжёлая САКА.
+    // Разлёт должен стать примерно в 1.5–2 раза выразительнее без сценарного "взрыва".
+    friction: 0.30,
+    restitution: 0.24,
+    sakaFriction: 0.24,
+    sakaRestitution: 0.28,
+    fieldFriction: 0.42,
+    fieldRestitution: 0.08,
+    groundFriction: 0.50,
+    groundRestitution: 0.05
   },
 
   throw: {
-    // Как в v20.61: САКА стартует со стороны игрока, поднимается над полем,
-    // затем приходит в кучку сверху. Havok рассчитывает всю дугу сам.
     start: { x: 0.05, y: 0.42, z: 4.45 },
     targetY: 0.30,
-    flightTime: 1.12,
-    targetJitter: 0.16,
-    sideSpin: 13.6,
-    settleMs: 2850
+
+    // Реальная Havok-баллистика. Сильный pull даёт чуть более высокую/долгую дугу,
+    // поэтому вертикальная составляющая удара также растёт.
+    flightTimeMin: 1.14,
+    flightTimeMax: 1.31,
+    sideSpin: 14.8,
+    settleMs: 3100,
+
+    // Аналог v20.61: бросок ограничен сектором, который гарантированно пересекает кучку.
+    aimRadius: 0.78,
+    aimSafetyDeg: 2.0,
+    landingPowerMin: 0.10,
+    landingPowerExponent: 0.92,
+    deviationMaxDeg: 4.5,
+    maxPullPxMobile: 118,
+    maxPullPxDesktop: 132,
+    sakaPullWorld: 0.62,
+    tapThresholdPx: 10,
+    sakaTouchRadiusMobile: 74,
+    sakaTouchRadiusDesktop: 58
   },
 
   camera: {

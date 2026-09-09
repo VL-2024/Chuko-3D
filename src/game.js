@@ -12,6 +12,7 @@
     renderScale: document.getElementById('renderScale'),
     badge: document.getElementById('physicsBadge'),
     hint: document.getElementById('hint'),
+    aimPower: document.getElementById('aimPower'),
     fatal: document.getElementById('fatal'),
     fatalText: document.getElementById('fatalText')
   };
@@ -27,6 +28,10 @@
   let lowFpsStartedAt = 0;
   let adaptiveScaleApplied = false;
   let roundIndex = 0;
+  let aimDots = [];
+  let aimTarget = null;
+  let aimDotMaterial = null;
+  let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, tapCandidate: false, downX: 0, downY: 0 };
 
   function showFatal(error) {
     console.error(error);
@@ -214,7 +219,7 @@
     const fieldAggregate = new BABYLON.PhysicsAggregate(
       fieldPhysicsMesh,
       BABYLON.PhysicsShapeType.CYLINDER,
-      { mass: 0, friction: 0.78, restitution: 0.10 },
+      { mass: 0, friction: C.physics.fieldFriction, restitution: C.physics.fieldRestitution },
       scene
     );
     bodies.push({ mesh: fieldPhysicsMesh, aggregate: fieldAggregate, permanent: true });
@@ -243,7 +248,7 @@
     const groundAggregate = new BABYLON.PhysicsAggregate(
       groundPhysicsMesh,
       BABYLON.PhysicsShapeType.BOX,
-      { mass: 0, friction: 0.82, restitution: 0.06 },
+      { mass: 0, friction: C.physics.groundFriction, restitution: C.physics.groundRestitution },
       scene
     );
     bodies.push({ mesh: groundPhysicsMesh, aggregate: groundAggregate, permanent: true });
@@ -312,8 +317,11 @@
     roundIndex++;
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.3 · convex hull: смотрим кувырки, разлёт и FPS';
+    ui.hint.textContent = 'v0.4 · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
+    resetAimState();
+    hideAimVisuals();
+    if (ui.aimPower) ui.aimPower.hidden = true;
 
     const chukoColors = [
       new BABYLON.Color3(0.77,0.70,0.57),
@@ -381,38 +389,329 @@
     return target.subtract(start).subtract(g.scale(0.5 * flightTime * flightTime)).scale(1 / flightTime);
   }
 
-  function throwSaka() {
+  function clamp01(v) {
+    return Math.max(0, Math.min(1, Number(v) || 0));
+  }
+
+  function normalize2(x, z, fallbackX = 0, fallbackZ = -1) {
+    const len = Math.hypot(x, z);
+    if (len < 1e-7) return { x: fallbackX, z: fallbackZ };
+    return { x: x / len, z: z / len };
+  }
+
+  function rotate2(v, angle) {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return { x: v.x * c - v.z * s, z: v.x * s + v.z * c };
+  }
+
+  function signedAngle2(a, b) {
+    return Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z);
+  }
+
+  function rayCircleIntersections2(origin, dir, center, radius) {
+    const ox = origin.x - center.x;
+    const oz = origin.z - center.z;
+    const b = 2 * (ox * dir.x + oz * dir.z);
+    const c = ox * ox + oz * oz - radius * radius;
+    const disc = b * b - 4 * c;
+    if (disc < 0) return null;
+    const sd = Math.sqrt(disc);
+    const t1 = (-b - sd) / 2;
+    const t2 = (-b + sd) / 2;
+    const near = Math.min(t1, t2);
+    const far = Math.max(t1, t2);
+    if (far <= 0) return null;
+    return { near: Math.max(0, near), far };
+  }
+
+  function aimGeometry() {
+    const origin = { x: C.throw.start.x, z: C.throw.start.z };
+    const center = { x: 0, z: C.pile.offsetZ };
+    const radius = C.throw.aimRadius;
+    const toCenter = normalize2(center.x - origin.x, center.z - origin.z);
+    const distance = Math.hypot(center.x - origin.x, center.z - origin.z);
+    const tangentHalfAngle = Math.asin(Math.max(0, Math.min(0.999, radius / Math.max(radius + 0.001, distance))));
+    const safety = Math.max(0, Number(C.throw.aimSafetyDeg || 0)) * Math.PI / 180;
+    return {
+      origin,
+      center,
+      radius,
+      toCenter,
+      halfAngle: Math.max(2 * Math.PI / 180, tangentHalfAngle - safety)
+    };
+  }
+
+  function clampThrowDirectionToPile(dir) {
+    const geo = aimGeometry();
+    const desired = normalize2(dir.x, dir.z, geo.toCenter.x, geo.toCenter.z);
+    let angle = signedAngle2(geo.toCenter, desired);
+    angle = Math.max(-geo.halfAngle, Math.min(geo.halfAngle, angle));
+    return rotate2(geo.toCenter, angle);
+  }
+
+  function landingForDirectionAndPower(dir, power01) {
+    const geo = aimGeometry();
+    const safeDir = clampThrowDirectionToPile(dir);
+    let hits = rayCircleIntersections2(geo.origin, safeDir, geo.center, geo.radius);
+    if (!hits) hits = rayCircleIntersections2(geo.origin, geo.toCenter, geo.center, geo.radius);
+
+    const minPower = Math.max(0, Math.min(0.45, Number(C.throw.landingPowerMin || 0.1)));
+    const exponent = Math.max(0.35, Number(C.throw.landingPowerExponent || 1));
+    const power = clamp01(power01);
+    const mapped = minPower + (1 - minPower) * Math.pow(power, exponent);
+    const t = hits.near + (hits.far - hits.near) * mapped;
+
+    return {
+      dir: safeDir,
+      point: { x: geo.origin.x + safeDir.x * t, z: geo.origin.z + safeDir.z * t },
+      power
+    };
+  }
+
+  function actualThrowFromGuide(guideDir, power01) {
+    const geo = aimGeometry();
+    const guide = clampThrowDirectionToPile(guideDir);
+    const guideAngle = signedAngle2(geo.toCenter, guide);
+    const leftRoom = guideAngle + geo.halfAngle;
+    const rightRoom = geo.halfAngle - guideAngle;
+    const maxDev = Math.max(0, Math.min(12, Number(C.throw.deviationMaxDeg || 0))) * Math.PI / 180;
+
+    let deviation = (Math.random() * 2 - 1) * maxDev;
+    deviation = Math.max(-Math.min(maxDev, leftRoom), Math.min(Math.min(maxDev, rightRoom), deviation));
+    const actualDir = rotate2(guide, deviation);
+    const landing = landingForDirectionAndPower(actualDir, power01);
+    return { ...landing, guideDir: guide, deviation };
+  }
+
+  function flightTimeForPower(power) {
+    const p = clamp01(power);
+    return C.throw.flightTimeMin + (C.throw.flightTimeMax - C.throw.flightTimeMin) * p;
+  }
+
+  function createAimVisuals() {
+    aimDotMaterial = new BABYLON.StandardMaterial('aim-dot-mat', scene);
+    aimDotMaterial.diffuseColor = new BABYLON.Color3(0.95, 0.98, 0.98);
+    aimDotMaterial.emissiveColor = new BABYLON.Color3(0.32, 0.38, 0.40);
+    aimDotMaterial.alpha = 0.86;
+
+    for (let i = 0; i < 16; i++) {
+      const dot = BABYLON.MeshBuilder.CreateSphere(`aim-dot-${i}`, {
+        diameter: i === 15 ? 0.085 : 0.060,
+        segments: 5
+      }, scene);
+      dot.material = aimDotMaterial;
+      dot.isPickable = false;
+      dot.setEnabled(false);
+      aimDots.push(dot);
+    }
+
+    const targetMat = new BABYLON.StandardMaterial('aim-target-mat', scene);
+    targetMat.diffuseColor = new BABYLON.Color3(0.90, 0.94, 0.20);
+    targetMat.emissiveColor = new BABYLON.Color3(0.30, 0.34, 0.03);
+    targetMat.alpha = 0.94;
+    aimTarget = BABYLON.MeshBuilder.CreateTorus('aim-target', {
+      diameter: 0.34,
+      thickness: 0.035,
+      tessellation: 24
+    }, scene);
+    aimTarget.material = targetMat;
+    aimTarget.isPickable = false;
+    aimTarget.setEnabled(false);
+  }
+
+  function hideAimVisuals() {
+    aimDots.forEach(dot => dot.setEnabled(false));
+    if (aimTarget) aimTarget.setEnabled(false);
+  }
+
+  function updateAimVisuals(target2, power) {
+    if (!saka || !aimDots.length) return;
+    const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+    const target = new BABYLON.Vector3(target2.x, C.throw.targetY, target2.z);
+    const flightTime = flightTimeForPower(power);
+    const v = ballisticVelocity(start, target, flightTime, C.physics.gravity);
+
+    aimDots.forEach((dot, i) => {
+      const t = flightTime * ((i + 1) / (aimDots.length + 1));
+      const p = start.add(v.scale(t)).add(new BABYLON.Vector3(0, 0.5 * C.physics.gravity * t * t, 0));
+      dot.position.copyFrom(p);
+      dot.setEnabled(i % 2 === 0 || i === aimDots.length - 1);
+    });
+
+    if (aimTarget) {
+      aimTarget.position.set(target2.x, 0.045, target2.z);
+      aimTarget.scaling.setAll(0.86 + 0.20 * clamp01(power));
+      aimTarget.setEnabled(true);
+    }
+  }
+
+  function resetAimState() {
+    aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, tapCandidate: false, downX: 0, downY: 0 };
+  }
+
+  function canvasPointer(e) {
+    const r = ui.canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top, width: r.width, height: r.height };
+  }
+
+  function sakaScreenPosition() {
+    if (!saka || !scene?.activeCamera) return null;
+    const viewport = scene.activeCamera.viewport.toGlobal(ui.canvas.clientWidth, ui.canvas.clientHeight);
+    return BABYLON.Vector3.Project(saka.position, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), viewport);
+  }
+
+  function isPointerNearSaka(e) {
+    const p = canvasPointer(e);
+    const sp = sakaScreenPosition();
+    if (!sp) return false;
+    const radius = isMobile() ? C.throw.sakaTouchRadiusMobile : C.throw.sakaTouchRadiusDesktop;
+    return Math.hypot(p.x - sp.x, p.y - sp.y) <= radius;
+  }
+
+  function updateDragAim(e) {
+    const dx = e.clientX - aimState.downX;
+    const dy = e.clientY - aimState.downY;
+    const pullLen = Math.hypot(dx, dy);
+    const maxPull = isMobile() ? C.throw.maxPullPxMobile : C.throw.maxPullPxDesktop;
+    const capped = Math.min(maxPull, pullLen);
+    const power = clamp01(capped / maxPull);
+
+    const rawDir = normalize2(-dx, -dy, 0, -1);
+    const guideDir = clampThrowDirectionToPile(rawDir);
+    const preview = landingForDirectionAndPower(guideDir, power);
+
+    aimState.power = power;
+    aimState.guideDir = guideDir;
+    updateAimVisuals(preview.point, power);
+
+    // Небольшой визуальный pull самой САКА, как в v20.61.
+    // Physics body пока STATIC; перед реальным броском позиция возвращается точно в start.
+    const pullWorld = C.throw.sakaPullWorld * power;
+    saka.position.set(
+      C.throw.start.x - guideDir.x * pullWorld,
+      C.throw.start.y + 0.025 * power,
+      C.throw.start.z - guideDir.z * pullWorld
+    );
+
+    if (ui.aimPower) {
+      ui.aimPower.hidden = power < 0.02;
+      const strong = ui.aimPower.querySelector('strong');
+      if (strong) strong.textContent = `${Math.round(power * 100)}%`;
+    }
+    ui.hint.textContent = power < 0.08
+      ? 'Тяните САКА назад сильнее'
+      : 'Отпустите · пунктир показывает точку падения';
+  }
+
+  function bindAimControls() {
+    ui.canvas.addEventListener('pointerdown', (e) => {
+      if (thrown || !saka) return;
+      const p = canvasPointer(e);
+      aimState.tapCandidate = true;
+      aimState.downX = e.clientX;
+      aimState.downY = e.clientY;
+
+      if (!isPointerNearSaka(e)) return;
+
+      aimState.dragging = true;
+      aimState.pointerId = e.pointerId;
+      aimState.power = 0;
+      aimState.guideDir = null;
+      ui.canvas.setPointerCapture?.(e.pointerId);
+      ui.hint.textContent = 'Тяните назад: влево/вправо — сторона удара, дальше — сила';
+      e.preventDefault();
+    });
+
+    ui.canvas.addEventListener('pointermove', (e) => {
+      if (Math.hypot(e.clientX - aimState.downX, e.clientY - aimState.downY) > C.throw.tapThresholdPx) {
+        aimState.tapCandidate = false;
+      }
+      if (!aimState.dragging || aimState.pointerId !== e.pointerId || thrown) return;
+      updateDragAim(e);
+      e.preventDefault();
+    });
+
+    const release = (e) => {
+      if (aimState.dragging && aimState.pointerId === e.pointerId) {
+        const power = aimState.power;
+        const guideDir = aimState.guideDir;
+        aimState.dragging = false;
+        aimState.pointerId = null;
+        aimState.tapCandidate = false;
+        if (ui.aimPower) ui.aimPower.hidden = true;
+        if (power < 0.06 || !guideDir) throwSaka();
+        else throwSaka({ guideDir, power });
+        e.preventDefault();
+        return;
+      }
+
+      if (aimState.tapCandidate && !thrown) {
+        const p = canvasPointer(e);
+        aimState.tapCandidate = false;
+        if (p.y < p.height * 0.82) throwSaka();
+      }
+    };
+
+    ui.canvas.addEventListener('pointerup', release);
+    ui.canvas.addEventListener('pointercancel', (e) => {
+      if (aimState.dragging && aimState.pointerId === e.pointerId) {
+        aimState.dragging = false;
+        aimState.pointerId = null;
+        saka?.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+        hideAimVisuals();
+        if (ui.aimPower) ui.aimPower.hidden = true;
+        ui.hint.textContent = 'v0.4 · потяните синюю САКА назад и отпустите';
+      }
+      aimState.tapCandidate = false;
+    });
+  }
+
+  function throwSaka(options = {}) {
     if (thrown || !saka || !sakaAggregate) return;
     thrown = true;
     ui.throwBtn.disabled = true;
     ui.throwBtn.textContent = 'САКА В ПОЛЁТЕ…';
-    ui.hint.textContent = 'Havok convex hull: САКА падает сверху и цепляет реальную форму чүкө';
+    if (ui.aimPower) ui.aimPower.hidden = true;
+    hideAimVisuals();
 
-    const jitter = C.throw.targetJitter;
-    const target = new BABYLON.Vector3(
-      (Math.random() - 0.5) * jitter * 2,
-      C.throw.targetY,
-      C.pile.offsetZ + (Math.random() - 0.5) * jitter * 0.75
-    );
+    let guideDir;
+    let power;
+    if (options.guideDir) {
+      guideDir = clampThrowDirectionToPile(options.guideDir);
+      power = clamp01(options.power ?? 0.68);
+    } else {
+      const geo = aimGeometry();
+      const a = (Math.random() * 2 - 1) * geo.halfAngle * 0.66;
+      guideDir = rotate2(geo.toCenter, a);
+      power = 0.48 + Math.random() * 0.34;
+    }
+
+    const actual = actualThrowFromGuide(guideDir, power);
+    const target = new BABYLON.Vector3(actual.point.x, C.throw.targetY, actual.point.z);
     const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
+    const flightTime = flightTimeForPower(power);
 
-    sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · Havok: смотрим дальность разлёта`;
+
     saka.position.copyFrom(start);
+    sakaAggregate.body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
     sakaAggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
     sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
 
-    const v = ballisticVelocity(start, target, C.throw.flightTime, C.physics.gravity);
+    const v = ballisticVelocity(start, target, flightTime, C.physics.gravity);
     sakaAggregate.body.setLinearVelocity(v);
+    const spin = C.throw.sideSpin * (0.82 + power * 0.36);
     sakaAggregate.body.setAngularVelocity(new BABYLON.Vector3(
-      -C.throw.sideSpin * 0.60,
-      C.throw.sideSpin * 0.24,
-      C.throw.sideSpin
+      -spin * 0.60,
+      spin * 0.24,
+      spin
     ));
 
     resetTimer = window.setTimeout(() => {
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
-      ui.hint.textContent = 'Ещё бросок соберёт тестовую кучку заново';
+      ui.hint.textContent = 'Разлёт усилен · «Ещё бросок» соберёт кучку заново';
     }, C.throw.settleMs);
   }
 
@@ -458,6 +757,7 @@
 
     await initPhysics();
     createEnvironment();
+    createAimVisuals();
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
@@ -481,10 +781,7 @@
       else resetRound();
     });
     ui.resetBtn.addEventListener('click', resetRound);
-
-    ui.canvas.addEventListener('pointerup', (event) => {
-      if (event.clientY < innerHeight * 0.78 && !thrown) throwSaka();
-    }, { passive: true });
+    bindAimControls();
 
     updatePerf();
   }
