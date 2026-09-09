@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.4.1',
+  version: '0.4.2',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -57,6 +57,10 @@ window.CHUKO3D_CONFIG = Object.freeze({
     landingPowerMin: 0.10,
     landingPowerExponent: 0.92,
     deviationMaxDeg: 4.5,
+    manualDeviationMaxDeg: 0.0,
+    aimPointRadiusFactor: 0.88,
+    aimHorizontalSensitivity: 1.00,
+    aimDepthSensitivity: 0.92,
     maxPullPxMobile: 118,
     maxPullPxDesktop: 132,
     sakaPullWorld: 0.62,

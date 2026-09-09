@@ -31,7 +31,7 @@
   let aimDots = [];
   let aimTarget = null;
   let aimDotMaterial = null;
-  let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, tapCandidate: false, downX: 0, downY: 0 };
+  let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
 
   function showFatal(error) {
     console.error(error);
@@ -317,7 +317,7 @@
     roundIndex++;
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.4.1 · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.4.2 · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -386,10 +386,11 @@
     // v0.4.1: keep a visible default trajectory on screen before the user touches SAKA.
     // This also makes it obvious where to drag on mobile.
     const defaultGeo = aimGeometry();
-    const defaultPreview = landingForDirectionAndPower(defaultGeo.toCenter, 0.58);
+    const defaultPoint = { x: defaultGeo.center.x, z: defaultGeo.center.z };
     aimState.power = 0.58;
     aimState.guideDir = defaultGeo.toCenter;
-    updateAimVisuals(defaultPreview.point, 0.58);
+    aimState.targetPoint = defaultPoint;
+    updateAimVisuals(defaultPoint, 0.58);
   }
 
   function ballisticVelocity(start, target, flightTime, gravityY) {
@@ -559,7 +560,7 @@
   }
 
   function resetAimState() {
-    aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, tapCandidate: false, downX: 0, downY: 0 };
+    aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   }
 
   function canvasPointer(e) {
@@ -571,6 +572,55 @@
     if (!saka || !scene?.activeCamera) return null;
     const viewport = scene.activeCamera.viewport.toGlobal(ui.canvas.clientWidth, ui.canvas.clientHeight);
     return BABYLON.Vector3.Project(saka.position, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), viewport);
+  }
+
+
+  function worldToScreenXZ(x, z, y = 0.05) {
+    if (!scene?.activeCamera) return null;
+    const viewport = scene.activeCamera.viewport.toGlobal(ui.canvas.clientWidth, ui.canvas.clientHeight);
+    return BABYLON.Vector3.Project(
+      new BABYLON.Vector3(x, y, z),
+      BABYLON.Matrix.Identity(),
+      scene.getTransformMatrix(),
+      viewport
+    );
+  }
+
+  // Camera-aware local basis for the aiming disc. This is important on mobile:
+  // world +X is not guaranteed to be screen-right for the current ArcRotateCamera.
+  function aimScreenBasis() {
+    const geo = aimGeometry();
+    const forward = { x: geo.toCenter.x, z: geo.toCenter.z };
+    let right = { x: -forward.z, z: forward.x };
+
+    const c0 = worldToScreenXZ(geo.center.x, geo.center.z);
+    const c1 = worldToScreenXZ(geo.center.x + right.x * 0.35, geo.center.z + right.z * 0.35);
+    if (c0 && c1 && c1.x < c0.x) right = { x: -right.x, z: -right.z };
+
+    return { geo, forward, right };
+  }
+
+  // Direct 2D aiming: finger displacement moves the landing marker inside the pile disc.
+  // Slingshot convention: pull left -> aim right; pull down -> aim farther through the pile.
+  function targetPointFromDrag(dx, dy, maxPull) {
+    const { geo, forward, right } = aimScreenBasis();
+    let lateral = (-dx / Math.max(1, maxPull)) * (C.throw.aimHorizontalSensitivity || 1);
+    let depth = (dy / Math.max(1, maxPull)) * (C.throw.aimDepthSensitivity || 1);
+
+    lateral = Math.max(-1, Math.min(1, lateral));
+    depth = Math.max(-1, Math.min(1, depth));
+
+    const len = Math.hypot(lateral, depth);
+    if (len > 1) {
+      lateral /= len;
+      depth /= len;
+    }
+
+    const r = geo.radius * Math.max(0.2, Math.min(1, C.throw.aimPointRadiusFactor || 0.88));
+    return {
+      x: geo.center.x + right.x * lateral * r + forward.x * depth * r,
+      z: geo.center.z + right.z * lateral * r + forward.z * depth * r
+    };
   }
 
   function isPointerNearSaka(e) {
@@ -589,16 +639,23 @@
     const capped = Math.min(maxPull, pullLen);
     const power = clamp01(capped / maxPull);
 
-    const rawDir = normalize2(-dx, -dy, 0, -1);
-    const guideDir = clampThrowDirectionToPile(rawDir);
-    const preview = landingForDirectionAndPower(guideDir, power);
+    // v0.4.2: landing point follows the finger in a camera-aware 2D aiming disc.
+    // This removes the old non-linear ray/power mapping and fixes horizontal mirroring.
+    const targetPoint = targetPointFromDrag(dx, dy, maxPull);
+    const geo = aimGeometry();
+    const guideDir = normalize2(
+      targetPoint.x - geo.origin.x,
+      targetPoint.z - geo.origin.z,
+      geo.toCenter.x,
+      geo.toCenter.z
+    );
 
     aimState.power = power;
     aimState.guideDir = guideDir;
-    updateAimVisuals(preview.point, power);
+    aimState.targetPoint = targetPoint;
+    updateAimVisuals(targetPoint, power);
 
-    // Небольшой визуальный pull самой САКА, как в v20.61.
-    // Physics body пока STATIC; перед реальным броском позиция возвращается точно в start.
+    // Visual pull of SAKA opposite to the actual throw direction.
     const pullWorld = C.throw.sakaPullWorld * power;
     saka.position.set(
       C.throw.start.x - guideDir.x * pullWorld,
@@ -613,7 +670,7 @@
     }
     ui.hint.textContent = power < 0.08
       ? 'Тяните САКА назад сильнее'
-      : 'Отпустите · пунктир показывает точку падения';
+      : 'Отпустите · влево пальцем = прицел вправо';
   }
 
   function bindAimControls() {
@@ -630,8 +687,9 @@
       aimState.pointerId = e.pointerId;
       aimState.power = 0;
       aimState.guideDir = null;
+      aimState.targetPoint = null;
       ui.canvas.setPointerCapture?.(e.pointerId);
-      ui.hint.textContent = 'Тяните назад: влево/вправо — сторона удара, дальше — сила';
+      ui.hint.textContent = 'Тяните назад: влево пальцем → прицел вправо · дальше — сила';
       e.preventDefault();
     });
 
@@ -648,12 +706,13 @@
       if (aimState.dragging && aimState.pointerId === e.pointerId) {
         const power = aimState.power;
         const guideDir = aimState.guideDir;
+        const targetPoint = aimState.targetPoint;
         aimState.dragging = false;
         aimState.pointerId = null;
         aimState.tapCandidate = false;
         if (ui.aimPower) ui.aimPower.hidden = true;
-        if (power < 0.06 || !guideDir) throwSaka();
-        else throwSaka({ guideDir, power });
+        if (power < 0.06 || !guideDir || !targetPoint) throwSaka();
+        else throwSaka({ guideDir, targetPoint, power, manual: true });
         e.preventDefault();
         return;
       }
@@ -672,10 +731,11 @@
         aimState.pointerId = null;
         saka?.position.set(C.throw.start.x, C.throw.start.y, C.throw.start.z);
         const geo = aimGeometry();
-        const preview = landingForDirectionAndPower(geo.toCenter, 0.58);
-        updateAimVisuals(preview.point, 0.58);
+        const defaultPoint = { x: geo.center.x, z: geo.center.z };
+        aimState.targetPoint = defaultPoint;
+        updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.4.1 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.4.2 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -701,8 +761,26 @@
       power = 0.48 + Math.random() * 0.34;
     }
 
-    const actual = actualThrowFromGuide(guideDir, power);
-    const target = new BABYLON.Vector3(actual.point.x, C.throw.targetY, actual.point.z);
+    let landingPoint;
+    if (options.targetPoint) {
+      // Manual drag is precise by design: preview ring and ballistic target are the same point.
+      // A tiny optional deviation can be enabled later, but defaults to zero in v0.4.2.
+      landingPoint = { x: options.targetPoint.x, z: options.targetPoint.z };
+      const dev = Math.max(0, Number(C.throw.manualDeviationMaxDeg || 0)) * Math.PI / 180;
+      if (dev > 0) {
+        const geo = aimGeometry();
+        const baseDir = normalize2(landingPoint.x - geo.origin.x, landingPoint.z - geo.origin.z, geo.toCenter.x, geo.toCenter.z);
+        const d = (Math.random() * 2 - 1) * dev;
+        const dir = rotate2(baseDir, d);
+        const dist = Math.hypot(landingPoint.x - geo.origin.x, landingPoint.z - geo.origin.z);
+        landingPoint = { x: geo.origin.x + dir.x * dist, z: geo.origin.z + dir.z * dist };
+      }
+    } else {
+      const actual = actualThrowFromGuide(guideDir, power);
+      landingPoint = actual.point;
+    }
+
+    const target = new BABYLON.Vector3(landingPoint.x, C.throw.targetY, landingPoint.z);
     const start = new BABYLON.Vector3(C.throw.start.x, C.throw.start.y, C.throw.start.z);
     const flightTime = flightTimeForPower(power);
 
