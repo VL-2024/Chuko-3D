@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.8.19',
+  version: '0.8.20',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -86,10 +86,10 @@ window.CHUKO3D_CONFIG = Object.freeze({
       triggerHeight: 0.72,
       triggerRadius: 0.56,
       affectRadius: 0.90,
-      radialSpeed: 1.88,
-      forwardSpeed: 0.46,
-      liftSpeed: 0.38,
-      randomSpeed: 0.14,
+      radialSpeed: 1.78,
+      forwardSpeed: 0.42,
+      liftSpeed: 0.34,
+      randomSpeed: 0.12,
       khanFactor: 0.86
     },
 

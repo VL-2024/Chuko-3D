@@ -41,13 +41,14 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.19: dynamic round objects are created once and reused on every reset.
+  // v0.8.20: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
+  const emergencyClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0815-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0820-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 264,
@@ -478,10 +479,10 @@
 
   function createContainmentRing() {
     // Extra-strong invisible perimeter to keep every chükö inside the visible screen.
-    const segments = 40;
-    const ringRadius = 3.58;
-    const wallHeight = 2.00;
-    const wallThickness = 0.28;
+    const segments = 48;
+    const ringRadius = 3.46;
+    const wallHeight = 2.25;
+    const wallThickness = 0.34;
     const segmentLength = 2 * Math.PI * ringRadius / segments * 1.18;
     for (let i = 0; i < segments; i++) {
       const a = (i / segments) * Math.PI * 2;
@@ -506,7 +507,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.19: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.20: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -622,7 +623,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.19 pooling/reset -------------------------------------------------------
+  // v0.8.20 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -746,7 +747,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.19 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.20 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -808,7 +809,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.19] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.20] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1214,7 +1215,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.19 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.20 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1297,7 +1298,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.19 · разлёт удерживается ещё жёстче ⚙';
+      ui.hint.textContent = 'v0.8.20 · разлёт с аварийным ограничением ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1395,46 +1396,80 @@
     ui.bodyCount.textContent = String(bodies.length);
   }
 
+  function emergencyClampPiece(item, nx, nz, clampRadius) {
+    if (!item?.aggregate?.body || !item?.mesh || emergencyClampPending.has(item)) return;
+    emergencyClampPending.add(item);
+    const body = item.aggregate.body;
+    const mesh = item.mesh;
+    const rot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
+    const y = Math.max(0.08, Math.min(mesh.position.y, 0.95));
+
+    try {
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+      body.setLinearVelocity(BABYLON.Vector3.Zero());
+      body.setAngularVelocity(BABYLON.Vector3.Zero());
+      body.disablePreStep = false;
+      mesh.position.set(nx * clampRadius, y, nz * clampRadius);
+      mesh.rotationQuaternion = rot;
+      mesh.computeWorldMatrix(true);
+
+      scene.onAfterRenderObservable.addOnce(() => {
+        try {
+          body.disablePreStep = true;
+          body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+          // Small inward continuation: no visible bounce back across the whole field.
+          body.setLinearVelocity(new BABYLON.Vector3(-nx * 0.42, Math.min(0.18, y * 0.08), -nz * 0.42));
+          body.setAngularVelocity(BABYLON.Vector3.Zero());
+        } catch (_) {}
+        emergencyClampPending.delete(item);
+      });
+    } catch (_) {
+      emergencyClampPending.delete(item);
+    }
+  }
+
   function containScatterInView() {
     if (!roundPool.initialized || !thrown) return;
     const items = [...roundPool.chukos, roundPool.khan].filter(Boolean);
-    const softRadius = 3.28;
-    const hardRadius = 3.46;
-    const clampRadius = 3.56;
+    const softRadius = 3.12;
+    const hardRadius = 3.34;
+    const emergencyRadius = 3.48;
+    const clampRadius = 3.30;
+
     for (const item of items) {
       const body = item?.aggregate?.body;
       const mesh = item?.mesh;
       if (!body || !mesh) continue;
       const r = Math.hypot(mesh.position.x, mesh.position.z);
-      if (r <= softRadius || mesh.position.y > 1.10) continue;
+      if (r <= softRadius || mesh.position.y > 1.25) continue;
 
-      const vel = readLinearVelocity(body);
       const inv = 1 / Math.max(1e-6, r);
       const nx = mesh.position.x * inv;
       const nz = mesh.position.z * inv;
+
+      // Absolute safety net. Even if Havok tunnels through the invisible wall,
+      // the piece cannot remain outside the visible play area.
+      if (r >= emergencyRadius) {
+        emergencyClampPiece(item, nx, nz, clampRadius);
+        continue;
+      }
+
+      const vel = readLinearVelocity(body);
       const outward = vel.x * nx + vel.z * nz;
-      let vx = vel.x * 0.84;
-      let vz = vel.z * 0.84;
-      let vy = Math.min(vel.y, 0.62);
+      let vx = vel.x * 0.80;
+      let vz = vel.z * 0.80;
+      let vy = Math.min(vel.y, 0.54);
 
       if (outward > 0) {
-        const edgeStrength = r >= hardRadius ? 1.38 : 1.08;
-        vx -= nx * outward * edgeStrength;
-        vz -= nz * outward * edgeStrength;
+        const strength = r >= hardRadius ? 1.52 : 1.18;
+        vx -= nx * outward * strength;
+        vz -= nz * outward * strength;
       }
-
       if (r >= hardRadius) {
-        const inwardPull = (r - hardRadius + 0.04) * 5.4;
+        const inwardPull = (r - hardRadius + 0.06) * 6.8;
         vx -= nx * inwardPull;
         vz -= nz * inwardPull;
-      }
-
-      if (r >= clampRadius) {
-        // Hard fallback: force a strong inward rebound if a piece reaches the outer edge.
-        const rebound = Math.max(0.55, Math.abs(outward) * 0.55 + 0.45);
-        vx = -nx * rebound;
-        vz = -nz * rebound;
-        vy = Math.min(vy, 0.38);
+        vy = Math.min(vy, 0.36);
       }
 
       body.setLinearVelocity(new BABYLON.Vector3(vx, vy, vz));
