@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.8.4',
+  version: '0.8.5',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -12,18 +12,18 @@ window.CHUKO3D_CONFIG = Object.freeze({
   // а не разбрасывает стартовую раскладку по всему полю.
   pile: {
     chukoCount: 12,
-    offsetZ: -0.36,
-    spreadX: 0.74,
-    spreadZ: 0.54,
-    positionJitter: 0.09,
+    offsetZ: -0.24,
+    spreadX: 0.60,
+    spreadZ: 0.44,
+    positionJitter: 0.06,
     angleJitter: 0.42,
-    stackLift: 0.16
+    stackLift: 0.13
   },
 
   pieces: {
-    chuko: { width: 0.46, height: 0.31, depth: 0.70, mass: 0.10 },
-    khan:  { width: 0.51, height: 0.34, depth: 0.78, mass: 0.14 },
-    saka:  { width: 0.66, height: 0.45, depth: 0.91, mass: 0.78 }
+    chuko: { width: 0.39, height: 0.26, depth: 0.60, mass: 0.085 },
+    khan:  { width: 0.43, height: 0.29, depth: 0.66, mass: 0.12 },
+    saka:  { width: 0.58, height: 0.40, depth: 0.80, mass: 0.70 }
   },
 
 
@@ -62,7 +62,7 @@ window.CHUKO3D_CONFIG = Object.freeze({
   },
 
   throw: {
-    start: { x: 0.76, y: 0.72, z: 2.95 },
+    start: { x: 0.72, y: 0.70, z: 2.85 },
     targetY: 0.30,
 
     // v0.5: дуга задаётся через реальную высоту апекса.
@@ -111,7 +111,7 @@ window.CHUKO3D_CONFIG = Object.freeze({
     betaDesktop: 0.96,
     radiusMobile: 8.45,
     radiusDesktop: 8.00,
-    target: { x: 0, y: 0.14, z: -0.02 }
+    target: { x: 0, y: 0.16, z: 0.04 }
   },
 
   mobile: {
