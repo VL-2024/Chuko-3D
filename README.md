@@ -1,3 +1,12 @@
+# CHUKO Modern 3D v0.2.1
+
+Cache-busting hotfix for iPhone/Safari/GitHub Pages.
+
+- Local CSS/JS assets use version query strings (`?v=0.2.1`).
+- HTML includes no-cache meta directives.
+- For the most reliable mobile test, open the deployed URL once with `?v=0.2.1` appended.
+- Future prototypes should be deployed to versioned folders or URLs.
+
 # ЧҮКӨ Modern 3D — prototype v0.2
 
 Второй мобильный прототип Babylon.js + Havok. За эталон ощущения и композиции берётся ЧҮКӨ v20.61. LMS по-прежнему не подключён.
