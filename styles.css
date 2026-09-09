@@ -60,23 +60,26 @@ button:disabled { opacity: .42; cursor: default; }
   max-height: calc(100% - 250px - var(--safe-top) - var(--safe-bottom));
   overflow: auto; overscroll-behavior: contain;
   padding: 12px; border-radius: 16px; color: #fff;
-  background: rgba(5,12,16,.94); border: 1px solid rgba(255,255,255,.16);
-  backdrop-filter: blur(14px);
+  background: linear-gradient(180deg, rgba(5,12,16,.52), rgba(5,12,16,.42)); border: 1px solid rgba(255,255,255,.16);
+  backdrop-filter: blur(10px) saturate(1.05);
   -webkit-overflow-scrolling: touch;
 }
 .tune-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .tune-head strong { display: block; font-size: 14px; }
 .tune-head span { display: block; margin-top: 2px; opacity: .62; font-size: 10px; }
 .tune-close { flex: 0 0 40px; min-height: 40px; padding: 0; color: #fff; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.12); font-size: 24px; }
-.tune-group { padding: 9px 0 4px; border-top: 1px solid rgba(255,255,255,.10); }
+.tune-group { padding: 9px 0 4px; border-top: 1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.08); border-radius: 10px; margin-top: 6px; padding-left: 8px; padding-right: 8px; }
 .tune-group h3 { margin: 0 0 6px; font-size: 10px; letter-spacing: .12em; opacity: .66; }
 .tune-row { display: block; padding: 5px 0; }
-.tune-row > span { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 3px; font-size: 11px; }
+.tune-row > span { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 3px; font-size: 11px; text-shadow: 0 1px 6px rgba(0,0,0,.55); }
 .tune-row output { color: #e4ee3e; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tune-row input[type="range"] { width: 100%; min-height: 28px; margin: 0; accent-color: #e4ee3e; touch-action: pan-x; }
 .tune-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
 .tune-actions button { min-height: 42px; padding: 0 8px; font-size: 9px; color: #fff; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.13); }
-.tune-output { width: 100%; margin-top: 8px; padding: 8px; resize: none; border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.30); color: rgba(255,255,255,.78); font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tune-output { width: 100%; margin-top: 8px; padding: 8px; resize: none; border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.20); color: rgba(255,255,255,.82); font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 @media (min-width: 760px) {
   .tune-panel { left: 12px; right: auto; width: 390px; max-height: calc(100% - 150px); }
 }
+
+.tune-panel::-webkit-scrollbar { width: 8px; }
+.tune-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 999px; }

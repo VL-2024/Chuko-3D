@@ -40,28 +40,29 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.6: dynamic round objects are created once and reused on every reset.
+  // v0.8.8: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v086-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v087-tuning';
   const TUNE_DEFAULTS = Object.freeze({
-    fieldWidth: 102,
-    fieldBottom: 162,
+    fieldWidth: 88,
+    fieldBottom: 264,
     fieldX: 0,
-    bgScale: 1.00,
+    bgScale: 1.01,
     bgX: 0,
-    bgY: 0,
-    pileX: 0.00,
-    pileZ: -0.24,
-    spreadX: 0.60,
-    spreadZ: 0.44,
-    cameraRadius: isMobile() ? 8.45 : 8.00,
-    cameraTargetX: 0.00,
+    bgY: -2,
+    pileX: -0.18,
+    pileZ: -0.86,
+    spreadX: 0.38,
+    spreadZ: 0.82,
+    chukoScale: 0.82,
+    cameraRadius: 8.45,
+    cameraTargetX: -0.12,
     cameraTargetZ: 0.04,
-    sakaX: 0.72,
+    sakaX: -0.16,
     sakaZ: 2.85
   });
 
@@ -85,6 +86,20 @@
 
   function throwStartPoint() {
     return { x: Number(tuning.sakaX), y: C.throw.start.y, z: Number(tuning.sakaZ) };
+  }
+
+
+  function pilePieceScale() {
+    return Math.max(0.5, Number(tuning.chukoScale) || 1);
+  }
+
+  function applyPilePieceScale() {
+    if (!roundPool.initialized) return;
+    const s = pilePieceScale();
+    for (const item of roundPool.chukos) {
+      if (item?.mesh?.scaling?.setAll) item.mesh.scaling.setAll(s);
+    }
+    if (roundPool.khan?.mesh?.scaling?.setAll) roundPool.khan.mesh.scaling.setAll(s);
   }
 
   function applyDomTuning() {
@@ -111,7 +126,7 @@
   }
 
   function tuningAffectsRound(key) {
-    return ['pileX','pileZ','spreadX','spreadZ','sakaX','sakaZ'].includes(key);
+    return ['pileX','pileZ','spreadX','spreadZ','chukoScale','sakaX','sakaZ'].includes(key);
   }
 
   function scheduleTuningRoundReset() {
@@ -125,7 +140,7 @@
     const v = Number(value);
     if (['fieldWidth'].includes(key)) return `${Math.round(v)}vw`;
     if (['fieldBottom','fieldX','bgX','bgY'].includes(key)) return `${Math.round(v)}px`;
-    if (key === 'bgScale') return `${v.toFixed(2)}×`;
+    if (key === 'bgScale' || key === 'chukoScale') return `${v.toFixed(2)}×`; 
     if (key === 'cameraRadius') return v.toFixed(2);
     return v.toFixed(2);
   }
@@ -188,6 +203,7 @@
         saveTuning();
         applyDomTuning();
         applyCameraTuning();
+        applyPilePieceScale();
         const out = document.querySelector(`[data-out="${key}"]`);
         if (out) out.textContent = tuneNumberLabel(key, value);
         if (ui.tuneOutput) ui.tuneOutput.value = JSON.stringify(tuning, null, 2);
@@ -200,6 +216,7 @@
       saveTuning();
       applyDomTuning();
       applyCameraTuning();
+      applyPilePieceScale();
       refreshTuneUi();
       scheduleTuningRoundReset();
     });
@@ -423,7 +440,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.6: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.8: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -537,7 +554,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.6 pooling/reset -------------------------------------------------------
+  // v0.8.8 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -587,6 +604,7 @@
     ];
 
     const d = C.pieces.chuko;
+    const pileScale = pilePieceScale();
     for (let i = 0; i < C.pile.chukoCount; i++) {
       const item = createPiece(
         `chuko-${i+1}`,
@@ -608,6 +626,8 @@
       true,
       0
     );
+
+    applyPilePieceScale();
 
     const sd = C.pieces.saka;
     const sakaMat = material('saka-mat', new BABYLON.Color3(0.018, 0.16, 0.62), 0.20, 0.54);
@@ -657,7 +677,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.6 · настройте композицию ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.8 · есть ползунок размера чүкө ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -665,6 +685,7 @@
 
     const positions = pilePositions();
     const d = C.pieces.chuko;
+    const pileScale = pilePieceScale();
     positions.forEach(([px, pz], i) => {
       const jitter = C.pile.positionJitter;
       const x = Number(tuning.pileX) + px + (Math.random() - 0.5) * jitter * 2;
@@ -678,16 +699,17 @@
       );
       queueBodyTransformReset(
         roundPool.chukos[i],
-        new BABYLON.Vector3(x, d.height * 0.58 + lift, z),
+        new BABYLON.Vector3(x, d.height * pileScale * 0.58 + lift, z),
         rot,
         true
       );
     });
 
     const kd = C.pieces.khan;
+    applyPilePieceScale();
     queueBodyTransformReset(
       roundPool.khan,
-      new BABYLON.Vector3(Number(tuning.pileX), kd.height * 0.54, Number(tuning.pileZ) - 0.01),
+      new BABYLON.Vector3(Number(tuning.pileX), kd.height * pileScale * 0.54, Number(tuning.pileZ) - 0.01),
       BABYLON.Quaternion.FromEulerAngles(
         (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
         0.58 + (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
@@ -717,7 +739,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.6] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.8] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1078,7 +1100,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.6 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.8 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1156,7 +1178,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.6 · настройте композицию ⚙ · «Ещё бросок» без пересоздания Havok-тел';
+      ui.hint.textContent = 'v0.8.8 · настройте композицию ⚙ · «Ещё бросок» без пересоздания Havok-тел';
     }, C.throw.settleMs);
   }
 
@@ -1284,6 +1306,7 @@
     createAimVisuals();
     bindTuner();
     applyCameraTuning();
+    applyPilePieceScale();
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
