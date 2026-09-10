@@ -32,8 +32,6 @@
   let sakaShadowBaseAlpha = 0.20;
   let sakaShadowBaseScale = 0.74;
   let sakaShadowBaseY = 0.014;
-  let impactRing = null;
-  let impactRingMat = null;
   let impactFlash = null;
   let impactFlashMat = null;
   let dustSystem = null;
@@ -54,7 +52,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.7: dynamic round objects are created once and reused on every reset.
+  // v0.9.8: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -215,7 +213,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.7] GLB bounds', {
+    console.info('[CHUKO 0.9.8] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -588,29 +586,38 @@
   function ensureImpactDustSystem() {
     if (dustSystem) return;
     dustEmitter = new BABYLON.TransformNode('impact-dust-emitter', scene);
-    dustEmitter.position.set(0, 0.08, 0);
+    dustEmitter.position.set(0, 0.055, 0);
 
-    const ps = new BABYLON.ParticleSystem('impact-dust', 32, scene);
+    const ps = new BABYLON.ParticleSystem('impact-dust', 28, scene);
     ps.particleTexture = createDustTexture('impact-dust-tex');
     ps.emitter = dustEmitter;
-    ps.minEmitBox = new BABYLON.Vector3(-0.05, 0, -0.05);
-    ps.maxEmitBox = new BABYLON.Vector3(0.05, 0.03, 0.05);
-    ps.color1 = new BABYLON.Color4(0.84, 0.76, 0.64, 0.46);
-    ps.color2 = new BABYLON.Color4(0.52, 0.40, 0.27, 0.32);
-    ps.colorDead = new BABYLON.Color4(0.12, 0.10, 0.08, 0.0);
-    ps.minSize = 0.09;
-    ps.maxSize = 0.18;
-    ps.minLifeTime = 0.20;
-    ps.maxLifeTime = 0.45;
+    ps.minEmitBox = new BABYLON.Vector3(-0.035, 0.00, -0.035);
+    ps.maxEmitBox = new BABYLON.Vector3( 0.035, 0.025,  0.035);
+
+    // Dry earth tones with low alpha: a small irregular puff rather than a game FX ring.
+    ps.color1 = new BABYLON.Color4(0.55, 0.43, 0.30, 0.34);
+    ps.color2 = new BABYLON.Color4(0.37, 0.29, 0.21, 0.22);
+    ps.colorDead = new BABYLON.Color4(0.19, 0.16, 0.13, 0.0);
+
+    ps.minSize = 0.045;
+    ps.maxSize = 0.115;
+    ps.minLifeTime = 0.28;
+    ps.maxLifeTime = 0.62;
     ps.manualEmitCount = 0;
-    ps.emitRate = 250;
+    ps.emitRate = 0;
     ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-    ps.gravity = new BABYLON.Vector3(0, -1.4, 0);
-    ps.direction1 = new BABYLON.Vector3(-0.6, 0.65, -0.6);
-    ps.direction2 = new BABYLON.Vector3(0.6, 1.15, 0.6);
-    ps.minEmitPower = 0.22;
-    ps.maxEmitPower = 0.52;
-    ps.updateSpeed = 0.014;
+    ps.gravity = new BABYLON.Vector3(0, -0.72, 0);
+
+    // Low, uneven cone of dust close to the ground.
+    ps.direction1 = new BABYLON.Vector3(-0.34, 0.14, -0.26);
+    ps.direction2 = new BABYLON.Vector3( 0.38, 0.48,  0.34);
+    ps.minEmitPower = 0.12;
+    ps.maxEmitPower = 0.30;
+    ps.minAngularSpeed = -1.2;
+    ps.maxAngularSpeed = 1.2;
+    ps.minInitialRotation = -Math.PI;
+    ps.maxInitialRotation = Math.PI;
+    ps.updateSpeed = 0.012;
     ps.disposeOnStop = false;
     dustSystem = ps;
   }
@@ -638,34 +645,30 @@
 
   function triggerImpactFx(point, power = 0.6) {
     const p = clamp01(power);
-    if (impactRing && impactRingMat) {
-      impactRing.position.set(point.x, 0.016, point.z);
-      impactRing.scaling.setAll(0.34 + p * 0.16);
-      impactRingMat.alpha = 0.62 + p * 0.14;
-      impactRing.setEnabled(true);
-    }
+
+    // Very short local contact flash only; no expanding ring.
     if (impactFlash && impactFlashMat) {
       impactFlash.position.set(point.x, 0.015, point.z);
-      impactFlash.scaling.setAll(0.42 + p * 0.20);
-      impactFlashMat.alpha = 0.26 + p * 0.10;
+      impactFlash.scaling.setAll(0.30 + p * 0.10);
+      impactFlashMat.alpha = 0.16 + p * 0.05;
       impactFlash.setEnabled(true);
     }
 
     impactFxState = {
       active: true,
       elapsed: 0,
-      duration: 0.34 + p * 0.16,
-      maxScale: 0.92 + p * 0.36,
+      duration: 0.16 + p * 0.06,
+      maxScale: 0.38 + p * 0.10,
       power: p
     };
 
     ensureImpactDustSystem();
     if (dustSystem && dustEmitter) {
-      dustEmitter.position.set(point.x, 0.08, point.z);
+      dustEmitter.position.set(point.x, 0.055, point.z);
       try { dustSystem.stop(); } catch (_) {}
-      dustSystem.manualEmitCount = 12 + Math.round(p * 10);
-      dustSystem.minEmitPower = 0.20 + p * 0.08;
-      dustSystem.maxEmitPower = 0.48 + p * 0.18;
+      dustSystem.manualEmitCount = 8 + Math.round(p * 7);
+      dustSystem.minEmitPower = 0.10 + p * 0.03;
+      dustSystem.maxEmitPower = 0.24 + p * 0.08;
       dustSystem.start();
     }
   }
@@ -674,24 +677,17 @@
     if (!impactFxState.active) return;
     impactFxState.elapsed += dt;
     const t = Math.min(1, impactFxState.elapsed / Math.max(0.001, impactFxState.duration));
-    const easeOut = 1 - Math.pow(1 - t, 2.2);
+    const easeOut = 1 - Math.pow(1 - t, 2.0);
 
-    if (impactRing && impactRingMat) {
-      const s = 0.26 + impactFxState.maxScale * easeOut;
-      impactRing.scaling.x = s;
-      impactRing.scaling.z = s;
-      impactRingMat.alpha = (1 - t) * (0.68 + impactFxState.power * 0.08);
-    }
     if (impactFlash && impactFlashMat) {
-      const s = 0.34 + impactFxState.maxScale * 0.74 * easeOut;
+      const s = 0.30 + impactFxState.maxScale * 0.38 * easeOut;
       impactFlash.scaling.x = s;
-      impactFlash.scaling.z = s;
-      impactFlashMat.alpha = (1 - t) * (0.22 + impactFxState.power * 0.08);
+      impactFlash.scaling.z = s * 0.88;
+      impactFlashMat.alpha = (1 - t) * (0.14 + impactFxState.power * 0.04);
     }
 
     if (t >= 1) {
       impactFxState.active = false;
-      if (impactRing) impactRing.setEnabled(false);
       if (impactFlash) impactFlash.setEnabled(false);
     }
   }
@@ -883,7 +879,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.7: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.8: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -968,10 +964,6 @@
     sakaShadowMat = sakaShadowHelper.mat;
     sakaShadow.rotationQuaternion = BABYLON.Quaternion.Identity();
 
-    const impactRingHelper = createImpactPlane('impact-ring', 1.55, 1.55, 0.0, 'ring');
-    impactRing = impactRingHelper.mesh;
-    impactRingMat = impactRingHelper.mat;
-    impactRing.rotationQuaternion = BABYLON.Quaternion.Identity();
 
     const impactFlashHelper = createImpactPlane('impact-flash', 1.25, 1.25, 0.0, 'flash');
     impactFlash = impactFlashHelper.mesh;
@@ -1022,7 +1014,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.7 pooling/reset -------------------------------------------------------
+  // v0.9.8 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1150,13 +1142,12 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.7 · тени и эффект удара · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.8 · реалистичная пыль · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
     if (ui.aimPower) ui.aimPower.hidden = true;
     impactFxState.active = false;
-    if (impactRing) impactRing.setEnabled(false);
     if (impactFlash) impactFlash.setEnabled(false);
     if (dustSystem) { try { dustSystem.stop(); } catch (_) {} }
 
@@ -1218,7 +1209,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.7] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.8] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1624,7 +1615,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.7 · полировка поля и света · потяните и отпустите';
+        ui.hint.textContent = 'v0.9.8 · полировка поля и света · потяните и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1707,7 +1698,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.7 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.8 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1798,7 +1789,7 @@
     });
 
     ui.hint.textContent = affected
-      ? `Контакт · импульс + пыль · затронуто ${affected} чүкө`
+      ? `Контакт · лёгкая пыль · затронуто ${affected} чүкө`
       : 'Контакт · Havok';
   }
 
