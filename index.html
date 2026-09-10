@@ -8,8 +8,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · GLB integration 0.9.2</title>
-  <link rel="stylesheet" href="styles.css?v=0.9.2" />
+  <title>ЧҮКӨ Modern 3D · GLB integration 0.9.3</title>
+  <link rel="stylesheet" href="styles.css?v=0.9.3" />
 </head>
 <body>
   <main id="app">
@@ -22,7 +22,7 @@
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
 
     <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.9.2 · GLB</em></div>
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.9.3 · GLB tuned</em></div>
       <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
     </header>
 
@@ -143,8 +143,16 @@
           <input type="range" min="-0.20" max="0.20" step="0.01" data-tune="sakaModelY">
         </label>
         <label class="tune-row">
-          <span>Поворот GLB САКА <output data-out="sakaModelYawDeg"></output></span>
+          <span>Поворот GLB САКА Y <output data-out="sakaModelYawDeg"></output></span>
           <input type="range" min="-180" max="180" step="5" data-tune="sakaModelYawDeg">
+        </label>
+        <label class="tune-row">
+          <span>Наклон GLB САКА X <output data-out="sakaModelPitchDeg"></output></span>
+          <input type="range" min="-180" max="180" step="5" data-tune="sakaModelPitchDeg">
+        </label>
+        <label class="tune-row">
+          <span>Завал GLB САКА Z <output data-out="sakaModelRollDeg"></output></span>
+          <input type="range" min="-180" max="180" step="5" data-tune="sakaModelRollDeg">
         </label>
       </section>
 
@@ -161,7 +169,7 @@
       </section>
 
       <div class="tune-actions">
-        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.9.2</button>
+        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.9.3</button>
         <button id="tuneCopyBtn" type="button">КОПИРОВАТЬ ПАРАМЕТРЫ</button>
       </div>
       <textarea id="tuneOutput" class="tune-output" readonly rows="5" aria-label="Текущие параметры"></textarea>
@@ -182,7 +190,7 @@
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.25.0/babylonjs.loaders.min.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.9.2"></script>
-  <script src="src/game.js?v=0.9.2"></script>
+  <script src="src/config.js?v=0.9.3"></script>
+  <script src="src/game.js?v=0.9.3"></script>
 </body>
 </html>

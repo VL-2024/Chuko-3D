@@ -1,31 +1,28 @@
-# CHUKO Modern 3D v0.9.2 — approved GLB layout + SAKA rotation
+# CHUKO Modern 3D v0.9.3 — SAKA rotation on all axes
 
-Сборка основана на удачной v0.9.1. Механика и Havok-proxy не изменялись.
+В этой версии зафиксированы последние присланные параметры композиции и GLB-масштабов, а для GLB САКА добавлены дополнительные повороты по осям X и Z.
 
-## Зафиксированные параметры
+## Что изменено
 
-- fieldWidth: 88
-- fieldBottom: 280
-- fieldX: 0
-- bgScale: 1.01
-- bgX: 0
-- bgY: -2
-- pileX: 0
-- pileZ: -1
-- spreadX: 0.34
-- spreadZ: 0.68
-- chukoScale: 0.72
-- cameraRadius: 8.95
-- cameraTargetX/Z: 0 / 0
-- sakaX: -0.16
-- sakaZ: 2.85
-- chukoModelScale: 1.04
-- chukoModelY: 0.01
-- khanModelScale: 1.22
-- khanModelY: 0
-- sakaModelScale: 0.72
-- sakaModelY: 0.01
+- применены новые параметры по умолчанию:
+  - `pileX: -0.02`
+  - `pileZ: -1.00`
+  - `spreadX: 0.70`
+  - `spreadZ: 0.68`
+  - `chukoScale: 0.80`
+  - `cameraTargetZ: 0.18`
+  - `chukoModelScale: 1.04`, `chukoModelY: -0.01`
+  - `khanModelScale: 1.22`, `khanModelY: 0.01`
+  - `sakaModelScale: 0.90`, `sakaModelY: 0.00`
+  - `sakaModelYawDeg: 20`
+- добавлены ползунки:
+  - `Наклон GLB САКА X`
+  - `Поворот GLB САКА Y`
+  - `Завал GLB САКА Z`
+- все повороты касаются только визуальной GLB-модели САКА; Havok-прокси и баллистика не менялись.
 
-## САКА
+## Что проверить
 
-GLB САКА повёрнута ещё на 90° относительно предыдущей сборки. Новый стартовый визуальный yaw — 180°. Добавлен отдельный ползунок `Поворот GLB САКА`, который меняет только визуальную GLB-модель и не влияет на Havok-физику или баллистическую траекторию.
+1. Удобно ли теперь доворачивать САКА по трём осям.
+2. Остались ли корректными полёт и контакт.
+3. Держится ли 60 FPS с GLB.
