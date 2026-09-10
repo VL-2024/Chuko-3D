@@ -46,9 +46,10 @@
   let saka = null;
   let sakaAggregate = null;
   let bodies = [];
-  const SAKA_VISUAL_LIFT_BASE = 0.078;
-  const SAKA_VISUAL_LIFT_FAR_FACTOR = 0.06;
-  const SAKA_VISUAL_LIFT_FAR_MAX = 0.05;
+  const SAKA_VISUAL_LIFT_BASE = 0.105;
+  const SAKA_VISUAL_LIFT_EDGE_FACTOR = 0.055;
+  const SAKA_VISUAL_LIFT_EDGE_START = 0.45;
+  const SAKA_VISUAL_LIFT_EDGE_MAX = 0.095;
   let thrown = false;
   let resetTimer = 0;
   let pileReleasedForThrow = false;
@@ -67,7 +68,7 @@
     ticketNo: Number(C.game?.demoTicketStart || 100001),
     resultShown: false
   };
-  // v0.10.0: dynamic round objects are created once and reused on every reset.
+  // v0.10.1: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -80,7 +81,7 @@
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0911-glb-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0101-gamefix';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -228,7 +229,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.10.0] GLB bounds', {
+    console.info('[CHUKO 0.10.1] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -381,9 +382,20 @@
     const anchor = item.visual.anchor;
     anchor.position.copyFrom(item.mesh.position);
     if (item.visual?.kind === 'saka') {
+      // Visual-only anti-clipping lift. It does not touch Havok physics.
+      // The extra lift is radial, so it also works on the left/right edges,
+      // not only on the far Z edge.
+      const pileX = Number(tuning.pileX || 0);
       const pileZ = Number(tuning.pileZ || 0);
-      const farDelta = Math.max(0, pileZ - item.mesh.position.z);
-      const extraLift = Math.min(SAKA_VISUAL_LIFT_FAR_MAX, farDelta * SAKA_VISUAL_LIFT_FAR_FACTOR);
+      const radialFromPile = Math.hypot(
+        item.mesh.position.x - pileX,
+        item.mesh.position.z - pileZ
+      );
+      const edgeDelta = Math.max(0, radialFromPile - SAKA_VISUAL_LIFT_EDGE_START);
+      const extraLift = Math.min(
+        SAKA_VISUAL_LIFT_EDGE_MAX,
+        edgeDelta * SAKA_VISUAL_LIFT_EDGE_FACTOR
+      );
       anchor.position.y += SAKA_VISUAL_LIFT_BASE + extraLift;
     }
     if (item.mesh.rotationQuaternion) {
@@ -952,7 +964,7 @@
   }
 
   function createEnvironment() {
-    // v0.10.0: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.10.1: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1086,7 +1098,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.10.0 pooling/reset -------------------------------------------------------
+  // v0.10.1 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1214,12 +1226,19 @@
   }
 
   function computePhysicalResult() {
-    const radius = Number(C.game?.resultRadius || C.visual?.fieldInnerRadius || 3.14);
-    const out = roundPool.chukos.filter(item => {
+    // Count against the WHITE PLAYING CIRCLE seen on field-realistic.webp,
+    // not against the outer carpet/physics arena.
+    // The previous 3.14 radius was larger than the scatter containment radius,
+    // which made "0" possible even when pieces were visibly outside the white circle.
+    const radius = Number(C.game?.resultRadius || 2.22);
+
+    const isOutsidePlayingCircle = (item) => {
       if (!item?.mesh) return false;
       return Math.hypot(item.mesh.position.x, item.mesh.position.z) > radius;
-    }).length;
-    const khanOut = !!roundPool.khan?.mesh && Math.hypot(roundPool.khan.mesh.position.x, roundPool.khan.mesh.position.z) > radius;
+    };
+
+    const out = roundPool.chukos.filter(isOutsidePlayingCircle).length;
+    const khanOut = !!roundPool.khan && isOutsidePlayingCircle(roundPool.khan);
     return { out, khanOut };
   }
 
@@ -1334,7 +1353,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.10.0] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.10.1] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {

@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.10.0',
+  version: '0.10.1',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -136,7 +136,7 @@ window.CHUKO3D_CONFIG = Object.freeze({
     denominations: [25, 50, 100],
     defaultDenomination: 25,
     demoTicketStart: 100001,
-    resultRadius: 3.14,
+    resultRadius: 2.22,
     resultDelayMs: 80
   },
 
