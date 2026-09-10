@@ -52,7 +52,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.8: dynamic round objects are created once and reused on every reset.
+  // v0.9.9: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -213,7 +213,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.8] GLB bounds', {
+    console.info('[CHUKO 0.9.9] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -304,6 +304,7 @@
     if (!item?.mesh || !item?.visual?.anchor) return;
     const anchor = item.visual.anchor;
     anchor.position.copyFrom(item.mesh.position);
+    if (item.kind === 'saka') anchor.position.y += SAKA_VISUAL_LIFT;
     if (item.mesh.rotationQuaternion) {
       if (!anchor.rotationQuaternion) anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
       anchor.rotationQuaternion.copyFrom(item.mesh.rotationQuaternion);
@@ -586,38 +587,38 @@
   function ensureImpactDustSystem() {
     if (dustSystem) return;
     dustEmitter = new BABYLON.TransformNode('impact-dust-emitter', scene);
-    dustEmitter.position.set(0, 0.055, 0);
+    dustEmitter.position.set(0, 0.075, 0);
 
-    const ps = new BABYLON.ParticleSystem('impact-dust', 28, scene);
+    const ps = new BABYLON.ParticleSystem('impact-dust', 42, scene);
     ps.particleTexture = createDustTexture('impact-dust-tex');
     ps.emitter = dustEmitter;
-    ps.minEmitBox = new BABYLON.Vector3(-0.035, 0.00, -0.035);
-    ps.maxEmitBox = new BABYLON.Vector3( 0.035, 0.025,  0.035);
+    ps.minEmitBox = new BABYLON.Vector3(-0.05, 0.00, -0.05);
+    ps.maxEmitBox = new BABYLON.Vector3( 0.05, 0.035,  0.05);
 
     // Dry earth tones with low alpha: a small irregular puff rather than a game FX ring.
-    ps.color1 = new BABYLON.Color4(0.55, 0.43, 0.30, 0.34);
-    ps.color2 = new BABYLON.Color4(0.37, 0.29, 0.21, 0.22);
-    ps.colorDead = new BABYLON.Color4(0.19, 0.16, 0.13, 0.0);
+    ps.color1 = new BABYLON.Color4(0.73, 0.60, 0.44, 0.58);
+    ps.color2 = new BABYLON.Color4(0.51, 0.40, 0.28, 0.38);
+    ps.colorDead = new BABYLON.Color4(0.24, 0.19, 0.14, 0.0);
 
-    ps.minSize = 0.045;
-    ps.maxSize = 0.115;
-    ps.minLifeTime = 0.28;
-    ps.maxLifeTime = 0.62;
+    ps.minSize = 0.065;
+    ps.maxSize = 0.16;
+    ps.minLifeTime = 0.34;
+    ps.maxLifeTime = 0.72;
     ps.manualEmitCount = 0;
     ps.emitRate = 0;
     ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-    ps.gravity = new BABYLON.Vector3(0, -0.72, 0);
+    ps.gravity = new BABYLON.Vector3(0, -0.48, 0);
 
     // Low, uneven cone of dust close to the ground.
-    ps.direction1 = new BABYLON.Vector3(-0.34, 0.14, -0.26);
-    ps.direction2 = new BABYLON.Vector3( 0.38, 0.48,  0.34);
-    ps.minEmitPower = 0.12;
-    ps.maxEmitPower = 0.30;
+    ps.direction1 = new BABYLON.Vector3(-0.42, 0.16, -0.32);
+    ps.direction2 = new BABYLON.Vector3( 0.46, 0.62,  0.38);
+    ps.minEmitPower = 0.16;
+    ps.maxEmitPower = 0.42;
     ps.minAngularSpeed = -1.2;
     ps.maxAngularSpeed = 1.2;
     ps.minInitialRotation = -Math.PI;
     ps.maxInitialRotation = Math.PI;
-    ps.updateSpeed = 0.012;
+    ps.updateSpeed = 0.014;
     ps.disposeOnStop = false;
     dustSystem = ps;
   }
@@ -664,11 +665,11 @@
 
     ensureImpactDustSystem();
     if (dustSystem && dustEmitter) {
-      dustEmitter.position.set(point.x, 0.055, point.z);
+      dustEmitter.position.set(point.x, 0.075, point.z);
       try { dustSystem.stop(); } catch (_) {}
-      dustSystem.manualEmitCount = 8 + Math.round(p * 7);
-      dustSystem.minEmitPower = 0.10 + p * 0.03;
-      dustSystem.maxEmitPower = 0.24 + p * 0.08;
+      dustSystem.manualEmitCount = 16 + Math.round(p * 12);
+      dustSystem.minEmitPower = 0.16 + p * 0.05;
+      dustSystem.maxEmitPower = 0.38 + p * 0.14;
       dustSystem.start();
     }
   }
@@ -879,7 +880,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.8: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.9: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1014,7 +1015,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.8 pooling/reset -------------------------------------------------------
+  // v0.9.9 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1142,7 +1143,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.8 · реалистичная пыль · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.9 · реалистичная пыль · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -1209,7 +1210,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.8] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.9] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1615,7 +1616,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.8 · полировка поля и света · потяните и отпустите';
+        ui.hint.textContent = 'v0.9.9 · полировка поля и света · потяните и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1698,7 +1699,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.8 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.9 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
