@@ -40,6 +40,8 @@
   let saka = null;
   let sakaAggregate = null;
   let bodies = [];
+  const SAKA_VISUAL_LIFT = 0.085;
+  let sakaEdgeClampPending = false;
   let thrown = false;
   let resetTimer = 0;
   let pileReleasedForThrow = false;
@@ -52,7 +54,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.9: dynamic round objects are created once and reused on every reset.
+  // v0.9.10: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -65,7 +67,7 @@
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v094-glb-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0910-glb-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -84,7 +86,7 @@
     sakaX: -0.16,
     sakaZ: 2.85,
     chukoModelScale: 1.10,
-    chukoModelY: -0.01,
+    chukoModelY: -0.16,
     khanModelScale: 1.22,
     khanModelY: 0.01,
     sakaModelScale: 0.90,
@@ -213,7 +215,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.9] GLB bounds', {
+    console.info('[CHUKO 0.9.10] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -304,7 +306,7 @@
     if (!item?.mesh || !item?.visual?.anchor) return;
     const anchor = item.visual.anchor;
     anchor.position.copyFrom(item.mesh.position);
-    if (item.kind === 'saka') anchor.position.y += SAKA_VISUAL_LIFT;
+    if (item.visual?.kind === 'saka') anchor.position.y += SAKA_VISUAL_LIFT;
     if (item.mesh.rotationQuaternion) {
       if (!anchor.rotationQuaternion) anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
       anchor.rotationQuaternion.copyFrom(item.mesh.rotationQuaternion);
@@ -589,29 +591,29 @@
     dustEmitter = new BABYLON.TransformNode('impact-dust-emitter', scene);
     dustEmitter.position.set(0, 0.075, 0);
 
-    const ps = new BABYLON.ParticleSystem('impact-dust', 42, scene);
+    const ps = new BABYLON.ParticleSystem('impact-dust', 64, scene);
     ps.particleTexture = createDustTexture('impact-dust-tex');
     ps.emitter = dustEmitter;
     ps.minEmitBox = new BABYLON.Vector3(-0.05, 0.00, -0.05);
     ps.maxEmitBox = new BABYLON.Vector3( 0.05, 0.035,  0.05);
 
     // Dry earth tones with low alpha: a small irregular puff rather than a game FX ring.
-    ps.color1 = new BABYLON.Color4(0.73, 0.60, 0.44, 0.58);
-    ps.color2 = new BABYLON.Color4(0.51, 0.40, 0.28, 0.38);
+    ps.color1 = new BABYLON.Color4(0.90, 0.78, 0.60, 0.72);
+    ps.color2 = new BABYLON.Color4(0.70, 0.56, 0.40, 0.52);
     ps.colorDead = new BABYLON.Color4(0.24, 0.19, 0.14, 0.0);
 
-    ps.minSize = 0.065;
-    ps.maxSize = 0.16;
-    ps.minLifeTime = 0.34;
-    ps.maxLifeTime = 0.72;
+    ps.minSize = 0.09;
+    ps.maxSize = 0.24;
+    ps.minLifeTime = 0.42;
+    ps.maxLifeTime = 0.85;
     ps.manualEmitCount = 0;
     ps.emitRate = 0;
     ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-    ps.gravity = new BABYLON.Vector3(0, -0.48, 0);
+    ps.gravity = new BABYLON.Vector3(0, -0.36, 0);
 
     // Low, uneven cone of dust close to the ground.
-    ps.direction1 = new BABYLON.Vector3(-0.42, 0.16, -0.32);
-    ps.direction2 = new BABYLON.Vector3( 0.46, 0.62,  0.38);
+    ps.direction1 = new BABYLON.Vector3(-0.50, 0.22, -0.40);
+    ps.direction2 = new BABYLON.Vector3( 0.52, 0.82,  0.46);
     ps.minEmitPower = 0.16;
     ps.maxEmitPower = 0.42;
     ps.minAngularSpeed = -1.2;
@@ -620,6 +622,7 @@
     ps.maxInitialRotation = Math.PI;
     ps.updateSpeed = 0.014;
     ps.disposeOnStop = false;
+    ps.renderingGroupId = 2;
     dustSystem = ps;
   }
 
@@ -667,9 +670,9 @@
     if (dustSystem && dustEmitter) {
       dustEmitter.position.set(point.x, 0.075, point.z);
       try { dustSystem.stop(); } catch (_) {}
-      dustSystem.manualEmitCount = 16 + Math.round(p * 12);
-      dustSystem.minEmitPower = 0.16 + p * 0.05;
-      dustSystem.maxEmitPower = 0.38 + p * 0.14;
+      dustSystem.manualEmitCount = 28 + Math.round(p * 18);
+      dustSystem.minEmitPower = 0.20 + p * 0.06;
+      dustSystem.maxEmitPower = 0.52 + p * 0.18;
       dustSystem.start();
     }
   }
@@ -880,7 +883,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.9: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.10: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1015,7 +1018,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.9 pooling/reset -------------------------------------------------------
+  // v0.9.10 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1138,12 +1141,13 @@
     ensureRoundPool();
 
     thrown = false;
+    sakaEdgeClampPending = false;
     roundIndex++;
     roundSeed = roundIndex * 7919 + 17;
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.9 · реалистичная пыль · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.10 · реалистичная пыль · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -1210,7 +1214,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.9] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.10] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1616,7 +1620,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.9 · полировка поля и света · потяните и отпустите';
+        ui.hint.textContent = 'v0.9.10 · полировка поля и света · потяните и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1699,7 +1703,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.9 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.10 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1843,6 +1847,58 @@
     }
   }
 
+  function clampSakaAtFieldEdge(nx, nz, radius) {
+    if (!sakaAggregate?.body || !saka || sakaEdgeClampPending) return;
+    sakaEdgeClampPending = true;
+    const body = sakaAggregate.body;
+    const rot = saka.rotationQuaternion ? saka.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
+    try {
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+      body.setLinearVelocity(BABYLON.Vector3.Zero());
+      body.setAngularVelocity(BABYLON.Vector3.Zero());
+      body.disablePreStep = false;
+      saka.position.set(nx * radius, Math.max(0.24, saka.position.y), nz * radius);
+      saka.rotationQuaternion = rot;
+      saka.computeWorldMatrix(true);
+      scene.onAfterRenderObservable.addOnce(() => {
+        try {
+          body.disablePreStep = true;
+          body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+          body.setLinearVelocity(new BABYLON.Vector3(-nx * 0.18, 0, -nz * 0.18));
+          body.setAngularVelocity(BABYLON.Vector3.Zero());
+        } catch (_) {}
+        sakaEdgeClampPending = false;
+      });
+    } catch (_) {
+      sakaEdgeClampPending = false;
+    }
+  }
+
+  function containSakaAfterImpact() {
+    if (!throwState.impactBoosted || !saka || !sakaAggregate?.body) return;
+    const r = Math.hypot(saka.position.x, saka.position.z);
+    if (r < 2.72) return;
+    const inv = 1 / Math.max(1e-6, r);
+    const nx = saka.position.x * inv;
+    const nz = saka.position.z * inv;
+    const vel = readLinearVelocity(sakaAggregate.body);
+    const outward = vel.x * nx + vel.z * nz;
+
+    // Soft braking near the carpet edge, only after the actual hit.
+    if (r >= 2.72 && outward > 0) {
+      let vx = vel.x - nx * outward * 0.78;
+      let vz = vel.z - nz * outward * 0.78;
+      let vy = vel.y;
+      if (saka.position.y < 0.22 && vy < 0) vy = 0;
+      sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(vx, vy, vz));
+    }
+
+    // Hard safety: never let SAKA fall off the far edge after contact.
+    if (r >= 3.02 || saka.position.y < 0.10) {
+      clampSakaAtFieldEdge(nx, nz, 2.88);
+    }
+  }
+
   function containScatterInView() {
     if (!roundPool.initialized || !thrown) return;
 
@@ -1961,6 +2017,7 @@
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
+      containSakaAfterImpact();
       containScatterInView();
       if (saka && saka.position.y < -2.5) {
         throwState.active = false;
