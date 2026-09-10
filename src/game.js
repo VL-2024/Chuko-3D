@@ -40,6 +40,9 @@
   let saka = null;
   let sakaAggregate = null;
   let bodies = [];
+  const SAKA_VISUAL_LIFT_BASE = 0.078;
+  const SAKA_VISUAL_LIFT_FAR_FACTOR = 0.06;
+  const SAKA_VISUAL_LIFT_FAR_MAX = 0.05;
   let thrown = false;
   let resetTimer = 0;
   let pileReleasedForThrow = false;
@@ -52,7 +55,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.10: dynamic round objects are created once and reused on every reset.
+  // v0.9.11: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -65,7 +68,7 @@
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0910-glb-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0911-glb-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -74,7 +77,7 @@
     bgX: 0,
     bgY: 8,
     pileX: -0.08,
-    pileZ: -1.00,
+    pileZ: -1.20,
     spreadX: 0.54,
     spreadZ: 0.68,
     chukoScale: 0.80,
@@ -213,7 +216,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.10] GLB bounds', {
+    console.info('[CHUKO 0.9.11] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -365,7 +368,12 @@
     if (!item?.mesh || !item?.visual?.anchor) return;
     const anchor = item.visual.anchor;
     anchor.position.copyFrom(item.mesh.position);
-    if (item.kind === 'saka') anchor.position.y += SAKA_VISUAL_LIFT;
+    if (item.visual?.kind === 'saka') {
+      const pileZ = Number(tuning.pileZ || 0);
+      const farDelta = Math.max(0, pileZ - item.mesh.position.z);
+      const extraLift = Math.min(SAKA_VISUAL_LIFT_FAR_MAX, farDelta * SAKA_VISUAL_LIFT_FAR_FACTOR);
+      anchor.position.y += SAKA_VISUAL_LIFT_BASE + extraLift;
+    }
     if (item.mesh.rotationQuaternion) {
       if (!anchor.rotationQuaternion) anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
       anchor.rotationQuaternion.copyFrom(item.mesh.rotationQuaternion);
@@ -932,7 +940,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.10: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.11: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1066,7 +1074,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.10 pooling/reset -------------------------------------------------------
+  // v0.9.11 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1194,7 +1202,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.10 · полировка сцены · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.11 · полировка сцены · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -1260,7 +1268,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.10] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.11] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1666,7 +1674,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.10 · полировка поля и света · потяните и отпустите';
+        ui.hint.textContent = 'v0.9.11 · полировка поля и света · потяните и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1749,7 +1757,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.10 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.11 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
