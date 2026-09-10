@@ -32,6 +32,13 @@
   let sakaShadowBaseAlpha = 0.20;
   let sakaShadowBaseScale = 0.74;
   let sakaShadowBaseY = 0.014;
+  let impactRing = null;
+  let impactRingMat = null;
+  let impactFlash = null;
+  let impactFlashMat = null;
+  let dustSystem = null;
+  let dustEmitter = null;
+  let impactFxState = { active: false, elapsed: 0, duration: 0.42, maxScale: 1.0, power: 0 };
   let saka = null;
   let sakaAggregate = null;
   let bodies = [];
@@ -47,7 +54,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.5: dynamic round objects are created once and reused on every reset.
+  // v0.9.7: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -208,7 +215,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.5] GLB bounds', {
+    console.info('[CHUKO 0.9.7] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -492,6 +499,55 @@
     return tex;
   }
 
+  function createImpactTexture(name, mode = 'ring') {
+    const size = 256;
+    const tex = new BABYLON.DynamicTexture(name, { width: size, height: size }, scene, false);
+    const ctx = tex.getContext();
+    ctx.clearRect(0, 0, size, size);
+    const cx = size * 0.5;
+    const cy = size * 0.5;
+
+    if (mode === 'ring') {
+      const grad = ctx.createRadialGradient(cx, cy, size * 0.14, cx, cy, size * 0.5);
+      grad.addColorStop(0.00, 'rgba(255,255,255,0.0)');
+      grad.addColorStop(0.42, 'rgba(255,255,255,0.0)');
+      grad.addColorStop(0.60, 'rgba(255,255,255,0.36)');
+      grad.addColorStop(0.76, 'rgba(255,255,255,0.92)');
+      grad.addColorStop(0.88, 'rgba(255,255,255,0.24)');
+      grad.addColorStop(1.00, 'rgba(255,255,255,0.0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+    } else {
+      const grad = ctx.createRadialGradient(cx, cy, size * 0.06, cx, cy, size * 0.5);
+      grad.addColorStop(0.00, 'rgba(255,245,220,0.92)');
+      grad.addColorStop(0.22, 'rgba(255,220,170,0.50)');
+      grad.addColorStop(0.52, 'rgba(255,184,96,0.18)');
+      grad.addColorStop(1.00, 'rgba(255,184,96,0.0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+    }
+
+    tex.hasAlpha = true;
+    tex.update(false);
+    return tex;
+  }
+
+  function createDustTexture(name) {
+    const size = 128;
+    const tex = new BABYLON.DynamicTexture(name, { width: size, height: size }, scene, false);
+    const ctx = tex.getContext();
+    ctx.clearRect(0, 0, size, size);
+    const grad = ctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.08, size * 0.5, size * 0.5, size * 0.5);
+    grad.addColorStop(0.0, 'rgba(255,255,255,0.95)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.35)');
+    grad.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    tex.hasAlpha = true;
+    tex.update(false);
+    return tex;
+  }
+
   function createShadowPlane(name, width, height, alpha = 0.22) {
     const mesh = BABYLON.MeshBuilder.CreateGround(name, { width, height, subdivisions: 1 }, scene);
     const mat = new BABYLON.StandardMaterial(`${name}-mat`, scene);
@@ -507,6 +563,56 @@
     mesh.receiveShadows = false;
     mesh.renderingGroupId = 0;
     return { mesh, mat };
+  }
+
+  function createImpactPlane(name, width, height, alpha, mode = 'ring') {
+    const mesh = BABYLON.MeshBuilder.CreateGround(name, { width, height, subdivisions: 1 }, scene);
+    const mat = new BABYLON.StandardMaterial(`${name}-mat`, scene);
+    mat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+    mat.specularColor = new BABYLON.Color3(0, 0, 0);
+    mat.emissiveColor = mode === 'ring'
+      ? new BABYLON.Color3(1.0, 0.84, 0.44)
+      : new BABYLON.Color3(0.96, 0.66, 0.24);
+    mat.opacityTexture = createImpactTexture(`${name}-tex`, mode);
+    mat.useAlphaFromDiffuseTexture = false;
+    mat.alpha = alpha;
+    mat.disableLighting = true;
+    mesh.material = mat;
+    mesh.isPickable = false;
+    mesh.receiveShadows = false;
+    mesh.renderingGroupId = 1;
+    mesh.setEnabled(false);
+    return { mesh, mat };
+  }
+
+  function ensureImpactDustSystem() {
+    if (dustSystem) return;
+    dustEmitter = new BABYLON.TransformNode('impact-dust-emitter', scene);
+    dustEmitter.position.set(0, 0.08, 0);
+
+    const ps = new BABYLON.ParticleSystem('impact-dust', 32, scene);
+    ps.particleTexture = createDustTexture('impact-dust-tex');
+    ps.emitter = dustEmitter;
+    ps.minEmitBox = new BABYLON.Vector3(-0.05, 0, -0.05);
+    ps.maxEmitBox = new BABYLON.Vector3(0.05, 0.03, 0.05);
+    ps.color1 = new BABYLON.Color4(0.84, 0.76, 0.64, 0.46);
+    ps.color2 = new BABYLON.Color4(0.52, 0.40, 0.27, 0.32);
+    ps.colorDead = new BABYLON.Color4(0.12, 0.10, 0.08, 0.0);
+    ps.minSize = 0.09;
+    ps.maxSize = 0.18;
+    ps.minLifeTime = 0.20;
+    ps.maxLifeTime = 0.45;
+    ps.manualEmitCount = 0;
+    ps.emitRate = 250;
+    ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+    ps.gravity = new BABYLON.Vector3(0, -1.4, 0);
+    ps.direction1 = new BABYLON.Vector3(-0.6, 0.65, -0.6);
+    ps.direction2 = new BABYLON.Vector3(0.6, 1.15, 0.6);
+    ps.minEmitPower = 0.22;
+    ps.maxEmitPower = 0.52;
+    ps.updateSpeed = 0.014;
+    ps.disposeOnStop = false;
+    dustSystem = ps;
   }
 
   function updatePileShadow() {
@@ -530,12 +636,73 @@
     sakaShadowMat.alpha = sakaShadowBaseAlpha * fade;
   }
 
+  function triggerImpactFx(point, power = 0.6) {
+    const p = clamp01(power);
+    if (impactRing && impactRingMat) {
+      impactRing.position.set(point.x, 0.016, point.z);
+      impactRing.scaling.setAll(0.34 + p * 0.16);
+      impactRingMat.alpha = 0.62 + p * 0.14;
+      impactRing.setEnabled(true);
+    }
+    if (impactFlash && impactFlashMat) {
+      impactFlash.position.set(point.x, 0.015, point.z);
+      impactFlash.scaling.setAll(0.42 + p * 0.20);
+      impactFlashMat.alpha = 0.26 + p * 0.10;
+      impactFlash.setEnabled(true);
+    }
+
+    impactFxState = {
+      active: true,
+      elapsed: 0,
+      duration: 0.34 + p * 0.16,
+      maxScale: 0.92 + p * 0.36,
+      power: p
+    };
+
+    ensureImpactDustSystem();
+    if (dustSystem && dustEmitter) {
+      dustEmitter.position.set(point.x, 0.08, point.z);
+      try { dustSystem.stop(); } catch (_) {}
+      dustSystem.manualEmitCount = 12 + Math.round(p * 10);
+      dustSystem.minEmitPower = 0.20 + p * 0.08;
+      dustSystem.maxEmitPower = 0.48 + p * 0.18;
+      dustSystem.start();
+    }
+  }
+
+  function updateImpactFx(dt) {
+    if (!impactFxState.active) return;
+    impactFxState.elapsed += dt;
+    const t = Math.min(1, impactFxState.elapsed / Math.max(0.001, impactFxState.duration));
+    const easeOut = 1 - Math.pow(1 - t, 2.2);
+
+    if (impactRing && impactRingMat) {
+      const s = 0.26 + impactFxState.maxScale * easeOut;
+      impactRing.scaling.x = s;
+      impactRing.scaling.z = s;
+      impactRingMat.alpha = (1 - t) * (0.68 + impactFxState.power * 0.08);
+    }
+    if (impactFlash && impactFlashMat) {
+      const s = 0.34 + impactFxState.maxScale * 0.74 * easeOut;
+      impactFlash.scaling.x = s;
+      impactFlash.scaling.z = s;
+      impactFlashMat.alpha = (1 - t) * (0.22 + impactFxState.power * 0.08);
+    }
+
+    if (t >= 1) {
+      impactFxState.active = false;
+      if (impactRing) impactRing.setEnabled(false);
+      if (impactFlash) impactFlash.setEnabled(false);
+    }
+  }
+
   function updateShadowHelpers() {
     updatePileShadow();
     updateSakaShadow();
   }
 
   function mergeParts(name, parts, mat) {
+
     const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, true);
     merged.name = name;
     merged.material = mat;
@@ -716,7 +883,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.5: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.7: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -800,6 +967,18 @@
     sakaShadow = sakaShadowHelper.mesh;
     sakaShadowMat = sakaShadowHelper.mat;
     sakaShadow.rotationQuaternion = BABYLON.Quaternion.Identity();
+
+    const impactRingHelper = createImpactPlane('impact-ring', 1.55, 1.55, 0.0, 'ring');
+    impactRing = impactRingHelper.mesh;
+    impactRingMat = impactRingHelper.mat;
+    impactRing.rotationQuaternion = BABYLON.Quaternion.Identity();
+
+    const impactFlashHelper = createImpactPlane('impact-flash', 1.25, 1.25, 0.0, 'flash');
+    impactFlash = impactFlashHelper.mesh;
+    impactFlashMat = impactFlashHelper.mat;
+    impactFlash.rotationQuaternion = BABYLON.Quaternion.Identity();
+
+    ensureImpactDustSystem();
     updatePileShadow();
   }
 
@@ -843,7 +1022,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.5 pooling/reset -------------------------------------------------------
+  // v0.9.7 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -971,11 +1150,15 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.5 · полировка поля и света · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.7 · тени и эффект удара · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
     if (ui.aimPower) ui.aimPower.hidden = true;
+    impactFxState.active = false;
+    if (impactRing) impactRing.setEnabled(false);
+    if (impactFlash) impactFlash.setEnabled(false);
+    if (dustSystem) { try { dustSystem.stop(); } catch (_) {} }
 
     const positions = pilePositions();
     const d = C.pieces.chuko;
@@ -1035,7 +1218,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.5] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.7] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1441,7 +1624,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.5 · полировка поля и света · потяните и отпустите';
+        ui.hint.textContent = 'v0.9.7 · полировка поля и света · потяните и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1502,7 +1685,7 @@
       flightTime: ballistic.flightTime
     };
 
-    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · кучка отпускается прямо перед контактом`;
+    ui.hint.textContent = `Удар ${Math.round(power * 100)}% · ждём контакт и разлёт`;
 
     // Pile remains STATIC after launch; onBeforeRender releases it only when SAKA is almost touching it.
     pileReleasedForThrow = false;
@@ -1524,7 +1707,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.5 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.7 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1574,6 +1757,7 @@
     // The pile is now dynamic at the real moment of impact, so apply a controlled
     // boost immediately in the same render frame.
     throwState.impactBoosted = true;
+    triggerImpactFx(tp, throwState.power || 0.6);
     if (aimTarget) aimTarget.setEnabled(false);
     const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
     const radialSpeed = Math.max(0, Number(cfg.radialSpeed || 4.35));
@@ -1614,7 +1798,7 @@
     });
 
     ui.hint.textContent = affected
-      ? `Контакт · импульс передан ${affected} чүкө · смотрим дальность`
+      ? `Контакт · импульс + пыль · затронуто ${affected} чүкө`
       : 'Контакт · Havok';
   }
 
@@ -1781,6 +1965,7 @@
     scene.onBeforeRenderObservable.add(() => {
       syncAllGlbVisuals();
       updateShadowHelpers();
+      updateImpactFx(engine.getDeltaTime() * 0.001);
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();

@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.9.5',
+  version: '0.9.7',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
