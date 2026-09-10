@@ -40,8 +40,6 @@
   let saka = null;
   let sakaAggregate = null;
   let bodies = [];
-  const SAKA_VISUAL_LIFT = 0.085;
-  let sakaEdgeClampPending = false;
   let thrown = false;
   let resetTimer = 0;
   let pileReleasedForThrow = false;
@@ -74,10 +72,10 @@
     fieldX: 0,
     bgScale: 1.01,
     bgX: 0,
-    bgY: -2,
-    pileX: -0.02,
+    bgY: 8,
+    pileX: -0.08,
     pileZ: -1.00,
-    spreadX: 0.70,
+    spreadX: 0.54,
     spreadZ: 0.68,
     chukoScale: 0.80,
     cameraRadius: 8.95,
@@ -248,6 +246,66 @@
     };
   }
 
+  function boostColor3(color, factor, lift = 0) {
+    if (!color) return new BABYLON.Color3(lift, lift, lift);
+    return new BABYLON.Color3(
+      Math.min(1, color.r * factor + lift),
+      Math.min(1, color.g * factor + lift),
+      Math.min(1, color.b * factor + lift)
+    );
+  }
+
+  function brightenImportedMaterial(mat, kind, suffix) {
+    if (!mat || typeof mat.clone !== 'function') return mat;
+    const clone = mat.clone(`${mat.name || kind}-lift-${suffix}`);
+    const warm = kind === 'khan';
+    const factor = warm ? 1.24 : 1.18;
+    const lift = warm ? 0.028 : 0.020;
+
+    if (clone.albedoColor) clone.albedoColor = boostColor3(clone.albedoColor, factor, lift);
+    if (clone.diffuseColor) clone.diffuseColor = boostColor3(clone.diffuseColor, factor, lift);
+    if (clone.specularColor) clone.specularColor = boostColor3(clone.specularColor, warm ? 1.06 : 1.04, 0.0);
+    if (clone.ambientColor) clone.ambientColor = boostColor3(clone.ambientColor, factor, lift * 0.4);
+
+    if (clone.albedoTexture && 'level' in clone.albedoTexture) {
+      clone.albedoTexture.level = (clone.albedoTexture.level || 1) * (warm ? 1.10 : 1.08);
+    }
+    if (clone.diffuseTexture && 'level' in clone.diffuseTexture) {
+      clone.diffuseTexture.level = (clone.diffuseTexture.level || 1) * (warm ? 1.10 : 1.08);
+    }
+
+    if ('roughness' in clone && Number.isFinite(clone.roughness)) clone.roughness = Math.max(0.16, clone.roughness * 0.88);
+    if ('metallic' in clone && Number.isFinite(clone.metallic) && warm) clone.metallic = Math.max(clone.metallic, 0.22);
+
+    const emissiveLift = warm
+      ? new BABYLON.Color3(0.11, 0.075, 0.028)
+      : new BABYLON.Color3(0.035, 0.055, 0.11);
+
+    if (clone.emissiveColor) {
+      clone.emissiveColor = new BABYLON.Color3(
+        Math.min(1, clone.emissiveColor.r + emissiveLift.r),
+        Math.min(1, clone.emissiveColor.g + emissiveLift.g),
+        Math.min(1, clone.emissiveColor.b + emissiveLift.b)
+      );
+    } else {
+      clone.emissiveColor = emissiveLift;
+    }
+
+    return clone;
+  }
+
+  function brightenImportedVisualMaterials(kind, meshes, suffix) {
+    if (kind !== 'khan' && kind !== 'saka') return;
+    const cache = new Map();
+    for (const mesh of meshes) {
+      const mat = mesh?.material;
+      if (!mat) continue;
+      const key = String(mat.uniqueId || mat.id || mat.name || Math.random());
+      if (!cache.has(key)) cache.set(key, brightenImportedMaterial(mat, kind, suffix));
+      mesh.material = cache.get(key);
+    }
+  }
+
   function createGlbVisual(kind, name) {
     const template = modelBank[kind];
     if (!template) return null;
@@ -273,6 +331,7 @@
 
     const descendants = typeof rootClone.getChildMeshes === 'function' ? rootClone.getChildMeshes(false) : [];
     if (rootClone.getTotalVertices && rootClone.getTotalVertices() > 0) descendants.push(rootClone);
+    brightenImportedVisualMaterials(kind, descendants, name);
     descendants.forEach(m => addShadow(m));
 
     const visual = {
@@ -306,7 +365,7 @@
     if (!item?.mesh || !item?.visual?.anchor) return;
     const anchor = item.visual.anchor;
     anchor.position.copyFrom(item.mesh.position);
-    if (item.visual?.kind === 'saka') anchor.position.y += SAKA_VISUAL_LIFT;
+    if (item.kind === 'saka') anchor.position.y += SAKA_VISUAL_LIFT;
     if (item.mesh.rotationQuaternion) {
       if (!anchor.rotationQuaternion) anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
       anchor.rotationQuaternion.copyFrom(item.mesh.rotationQuaternion);
@@ -591,29 +650,29 @@
     dustEmitter = new BABYLON.TransformNode('impact-dust-emitter', scene);
     dustEmitter.position.set(0, 0.075, 0);
 
-    const ps = new BABYLON.ParticleSystem('impact-dust', 64, scene);
+    const ps = new BABYLON.ParticleSystem('impact-dust', 42, scene);
     ps.particleTexture = createDustTexture('impact-dust-tex');
     ps.emitter = dustEmitter;
     ps.minEmitBox = new BABYLON.Vector3(-0.05, 0.00, -0.05);
     ps.maxEmitBox = new BABYLON.Vector3( 0.05, 0.035,  0.05);
 
     // Dry earth tones with low alpha: a small irregular puff rather than a game FX ring.
-    ps.color1 = new BABYLON.Color4(0.90, 0.78, 0.60, 0.72);
-    ps.color2 = new BABYLON.Color4(0.70, 0.56, 0.40, 0.52);
+    ps.color1 = new BABYLON.Color4(0.73, 0.60, 0.44, 0.58);
+    ps.color2 = new BABYLON.Color4(0.51, 0.40, 0.28, 0.38);
     ps.colorDead = new BABYLON.Color4(0.24, 0.19, 0.14, 0.0);
 
-    ps.minSize = 0.09;
-    ps.maxSize = 0.24;
-    ps.minLifeTime = 0.42;
-    ps.maxLifeTime = 0.85;
+    ps.minSize = 0.065;
+    ps.maxSize = 0.16;
+    ps.minLifeTime = 0.34;
+    ps.maxLifeTime = 0.72;
     ps.manualEmitCount = 0;
     ps.emitRate = 0;
     ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-    ps.gravity = new BABYLON.Vector3(0, -0.36, 0);
+    ps.gravity = new BABYLON.Vector3(0, -0.48, 0);
 
     // Low, uneven cone of dust close to the ground.
-    ps.direction1 = new BABYLON.Vector3(-0.50, 0.22, -0.40);
-    ps.direction2 = new BABYLON.Vector3( 0.52, 0.82,  0.46);
+    ps.direction1 = new BABYLON.Vector3(-0.42, 0.16, -0.32);
+    ps.direction2 = new BABYLON.Vector3( 0.46, 0.62,  0.38);
     ps.minEmitPower = 0.16;
     ps.maxEmitPower = 0.42;
     ps.minAngularSpeed = -1.2;
@@ -622,7 +681,6 @@
     ps.maxInitialRotation = Math.PI;
     ps.updateSpeed = 0.014;
     ps.disposeOnStop = false;
-    ps.renderingGroupId = 2;
     dustSystem = ps;
   }
 
@@ -666,15 +724,6 @@
       power: p
     };
 
-    ensureImpactDustSystem();
-    if (dustSystem && dustEmitter) {
-      dustEmitter.position.set(point.x, 0.075, point.z);
-      try { dustSystem.stop(); } catch (_) {}
-      dustSystem.manualEmitCount = 28 + Math.round(p * 18);
-      dustSystem.minEmitPower = 0.20 + p * 0.06;
-      dustSystem.maxEmitPower = 0.52 + p * 0.18;
-      dustSystem.start();
-    }
   }
 
   function updateImpactFx(dt) {
@@ -974,7 +1023,6 @@
     impactFlashMat = impactFlashHelper.mat;
     impactFlash.rotationQuaternion = BABYLON.Quaternion.Identity();
 
-    ensureImpactDustSystem();
     updatePileShadow();
   }
 
@@ -1141,20 +1189,18 @@
     ensureRoundPool();
 
     thrown = false;
-    sakaEdgeClampPending = false;
     roundIndex++;
     roundSeed = roundIndex * 7919 + 17;
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.10 · реалистичная пыль · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.10 · полировка сцены · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
     if (ui.aimPower) ui.aimPower.hidden = true;
     impactFxState.active = false;
     if (impactFlash) impactFlash.setEnabled(false);
-    if (dustSystem) { try { dustSystem.stop(); } catch (_) {} }
 
     const positions = pilePositions();
     const d = C.pieces.chuko;
@@ -1794,7 +1840,7 @@
     });
 
     ui.hint.textContent = affected
-      ? `Контакт · лёгкая пыль · затронуто ${affected} чүкө`
+      ? `Контакт · затронуто ${affected} чүкө`
       : 'Контакт · Havok';
   }
 
@@ -1844,58 +1890,6 @@
       );
     } catch (_) {
       return null;
-    }
-  }
-
-  function clampSakaAtFieldEdge(nx, nz, radius) {
-    if (!sakaAggregate?.body || !saka || sakaEdgeClampPending) return;
-    sakaEdgeClampPending = true;
-    const body = sakaAggregate.body;
-    const rot = saka.rotationQuaternion ? saka.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
-    try {
-      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
-      body.setLinearVelocity(BABYLON.Vector3.Zero());
-      body.setAngularVelocity(BABYLON.Vector3.Zero());
-      body.disablePreStep = false;
-      saka.position.set(nx * radius, Math.max(0.24, saka.position.y), nz * radius);
-      saka.rotationQuaternion = rot;
-      saka.computeWorldMatrix(true);
-      scene.onAfterRenderObservable.addOnce(() => {
-        try {
-          body.disablePreStep = true;
-          body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
-          body.setLinearVelocity(new BABYLON.Vector3(-nx * 0.18, 0, -nz * 0.18));
-          body.setAngularVelocity(BABYLON.Vector3.Zero());
-        } catch (_) {}
-        sakaEdgeClampPending = false;
-      });
-    } catch (_) {
-      sakaEdgeClampPending = false;
-    }
-  }
-
-  function containSakaAfterImpact() {
-    if (!throwState.impactBoosted || !saka || !sakaAggregate?.body) return;
-    const r = Math.hypot(saka.position.x, saka.position.z);
-    if (r < 2.72) return;
-    const inv = 1 / Math.max(1e-6, r);
-    const nx = saka.position.x * inv;
-    const nz = saka.position.z * inv;
-    const vel = readLinearVelocity(sakaAggregate.body);
-    const outward = vel.x * nx + vel.z * nz;
-
-    // Soft braking near the carpet edge, only after the actual hit.
-    if (r >= 2.72 && outward > 0) {
-      let vx = vel.x - nx * outward * 0.78;
-      let vz = vel.z - nz * outward * 0.78;
-      let vy = vel.y;
-      if (saka.position.y < 0.22 && vy < 0) vy = 0;
-      sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(vx, vy, vz));
-    }
-
-    // Hard safety: never let SAKA fall off the far edge after contact.
-    if (r >= 3.02 || saka.position.y < 0.10) {
-      clampSakaAtFieldEdge(nx, nz, 2.88);
     }
   }
 
@@ -2017,7 +2011,6 @@
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
-      containSakaAfterImpact();
       containScatterInView();
       if (saka && saka.position.y < -2.5) {
         throwState.active = false;
