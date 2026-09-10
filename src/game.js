@@ -68,7 +68,7 @@
     ticketNo: Number(C.game?.demoTicketStart || 100001),
     resultShown: false
   };
-  // v0.10.1: dynamic round objects are created once and reused on every reset.
+  // v0.10.2: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -81,7 +81,7 @@
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0101-gamefix';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0102-gamefix';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -229,7 +229,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.10.1] GLB bounds', {
+    console.info('[CHUKO 0.10.2] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -964,7 +964,7 @@
   }
 
   function createEnvironment() {
-    // v0.10.1: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.10.2: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1098,7 +1098,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.10.1 pooling/reset -------------------------------------------------------
+  // v0.10.2 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1353,7 +1353,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.10.1] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.10.2] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1448,16 +1448,26 @@
     if (!hits) hits = rayCircleIntersections2(geo.origin, geo.toCenter, geo.center, geo.radius);
 
     const minPower = Math.max(0, Math.min(0.45, Number(C.throw.landingPowerMin || 0.1)));
+    const maxPower = Math.max(minPower, Math.min(0.95, Number(C.throw.landingPowerMax || 0.82)));
     const exponent = Math.max(0.35, Number(C.throw.landingPowerExponent || 1));
     const power = clamp01(power01);
-    const mapped = minPower + (1 - minPower) * Math.pow(power, exponent);
+    const mapped = minPower + (maxPower - minPower) * Math.pow(power, exponent);
     const t = hits.near + (hits.far - hits.near) * mapped;
 
-    return {
-      dir: safeDir,
-      point: { x: geo.origin.x + safeDir.x * t, z: geo.origin.z + safeDir.z * t },
-      power
-    };
+    let point = { x: geo.origin.x + safeDir.x * t, z: geo.origin.z + safeDir.z * t };
+
+    // Keep the real impact point inside the dense contact zone of the pile.
+    // This prevents back-edge throws from landing behind the last chükö.
+    const contactRadius = geo.radius * Math.max(0.30, Math.min(0.95, Number(C.throw.contactRadiusFactor || 0.50)));
+    const dx = point.x - geo.center.x;
+    const dz = point.z - geo.center.z;
+    const r = Math.hypot(dx, dz);
+    if (r > contactRadius) {
+      const inv = 1 / Math.max(1e-6, r);
+      point = { x: geo.center.x + dx * inv * contactRadius, z: geo.center.z + dz * inv * contactRadius };
+    }
+
+    return { dir: safeDir, point, power };
   }
 
   function actualThrowFromGuide(guideDir, power01) {
@@ -1987,6 +1997,66 @@
     }
   }
 
+  function containSakaInsidePlayCircle() {
+    if (!thrown || !saka || !sakaAggregate?.body || sakaClampPending) return;
+
+    // Do not interfere with the high arc. Clamp only when SAKA is already near/after landing.
+    if (saka.position.y > 0.72) return;
+
+    const body = sakaAggregate.body;
+    const r = Math.hypot(saka.position.x, saka.position.z);
+    const softRadius = Number(C.game?.sakaContainSoftRadius || 2.02);
+    const hardRadius = Number(C.game?.sakaContainHardRadius || 2.14);
+    const clampRadius = Number(C.game?.sakaContainClampRadius || 1.98);
+    const minY = Number(C.game?.sakaContainMinY || 0.12);
+    if (r <= softRadius) return;
+
+    const inv = 1 / Math.max(1e-6, r);
+    const nx = saka.position.x * inv;
+    const nz = saka.position.z * inv;
+    const vel = readLinearVelocity(body);
+    const outward = vel.x * nx + vel.z * nz;
+
+    // Soft containment near the white circle.
+    if (r < hardRadius) {
+      let vx = vel.x * 0.92;
+      let vz = vel.z * 0.92;
+      let vy = vel.y;
+      if (outward > 0) {
+        vx -= nx * (outward * 1.30 + 0.18);
+        vz -= nz * (outward * 1.30 + 0.18);
+      }
+      if (saka.position.y < minY && vy < 0) vy = 0;
+      try { body.setLinearVelocity(new BABYLON.Vector3(vx, vy, vz)); } catch (_) {}
+      return;
+    }
+
+    // Hard guarantee: SAKA never leaves the visible white play circle.
+    sakaClampPending = true;
+    const rot = saka.rotationQuaternion ? saka.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
+    const y = Math.max(minY, Math.min(saka.position.y, 0.46));
+    try {
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+      body.setLinearVelocity(BABYLON.Vector3.Zero());
+      body.setAngularVelocity(BABYLON.Vector3.Zero());
+      body.disablePreStep = false;
+      saka.position.set(nx * clampRadius, y, nz * clampRadius);
+      saka.rotationQuaternion = rot;
+      saka.computeWorldMatrix(true);
+      scene.onAfterRenderObservable.addOnce(() => {
+        try {
+          body.disablePreStep = true;
+          body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+          body.setLinearVelocity(new BABYLON.Vector3(-nx * 0.28, 0, -nz * 0.28));
+          body.setAngularVelocity(BABYLON.Vector3.Zero());
+        } catch (_) {}
+        sakaClampPending = false;
+      });
+    } catch (_) {
+      sakaClampPending = false;
+    }
+  }
+
   function containScatterInView() {
     if (!roundPool.initialized || !thrown) return;
 
@@ -2107,6 +2177,7 @@
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
       containScatterInView();
+      containSakaInsidePlayCircle();
       if (saka && saka.position.y < -2.5) {
         throwState.active = false;
         pileReleasedForThrow = false;

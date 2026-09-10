@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.10.1',
+  version: '0.10.2',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -69,7 +69,7 @@ window.CHUKO3D_CONFIG = Object.freeze({
     finalApproachMinTime: 0.035,
     finalApproachMaxSpeed: 7.4,
     pileReleaseY: 0.58,
-    pileReleaseHorizontalError: 0.14,
+    pileReleaseHorizontalError: 0.18,
 
     // v0.5: дуга задаётся через реальную высоту апекса.
     // Это делает полёт визуально стабильнее: САКА действительно поднимается
@@ -95,8 +95,10 @@ window.CHUKO3D_CONFIG = Object.freeze({
 
     // Аналог v20.61: бросок ограничен сектором, который гарантированно пересекает кучку.
     aimRadius: 0.78,
+    contactRadiusFactor: 0.50,
     aimSafetyDeg: 2.0,
     landingPowerMin: 0.10,
+    landingPowerMax: 0.82,
     landingPowerExponent: 0.92,
     deviationMaxDeg: 4.5,
     manualDeviationMaxDeg: 0.0,
@@ -137,7 +139,11 @@ window.CHUKO3D_CONFIG = Object.freeze({
     defaultDenomination: 25,
     demoTicketStart: 100001,
     resultRadius: 2.22,
-    resultDelayMs: 80
+    resultDelayMs: 80,
+    sakaContainSoftRadius: 2.02,
+    sakaContainHardRadius: 2.14,
+    sakaContainClampRadius: 1.98,
+    sakaContainMinY: 0.12
   },
 
   mobile: {
