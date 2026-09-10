@@ -8,8 +8,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · GLB integration 0.9.11</title>
-  <link rel="stylesheet" href="styles.css?v=0.9.11" />
+  <title>ЧҮКӨ Modern 3D · game loop 0.10.0</title>
+  <link rel="stylesheet" href="styles.css?v=0.10.0" />
 </head>
 <body>
   <main id="app">
@@ -24,9 +24,32 @@
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
 
     <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.9.11 · polish 2</em></div>
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.10.0 · GAME</em></div>
       <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
     </header>
+
+
+    <section class="game-bar" aria-label="Игровая информация">
+      <div class="mode-switch" role="group" aria-label="Режим игры">
+        <button id="demoModeBtn" class="mode active" type="button">DEMO</button>
+        <button id="realModeBtn" class="mode" type="button" disabled title="LMS подключим позже">REAL</button>
+      </div>
+      <div class="ticket-box"><span>БИЛЕТ</span><strong id="ticketNo">#100001</strong></div>
+    </section>
+
+    <section class="denom-bar" aria-label="Номинал билета">
+      <span>НОМИНАЛ</span>
+      <button class="denom active" type="button" data-denom="25">25</button>
+      <button class="denom" type="button" data-denom="50">50</button>
+      <button class="denom" type="button" data-denom="100">100</button>
+      <em>сом</em>
+    </section>
+
+    <section id="resultCard" class="result-card" hidden aria-live="polite">
+      <span class="result-kicker">РЕЗУЛЬТАТ</span>
+      <strong id="resultMain">Выбито: 0</strong>
+      <span id="resultSub">ХАН остался в круге</span>
+    </section>
 
     <section class="perf" id="perfPanel" aria-live="polite">
       <div><span>FPS</span><strong id="fps">—</strong></div>
@@ -171,7 +194,7 @@
       </section>
 
       <div class="tune-actions">
-        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.9.11</button>
+        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.10.0</button>
         <button id="tuneCopyBtn" type="button">КОПИРОВАТЬ ПАРАМЕТРЫ</button>
       </div>
       <textarea id="tuneOutput" class="tune-output" readonly rows="5" aria-label="Текущие параметры"></textarea>
@@ -179,8 +202,8 @@
 
     <footer class="controls bottom-safe">
       <button id="throwBtn" class="primary">БРОСИТЬ САКА</button>
-      <button id="resetBtn" class="secondary">СБРОС</button>
-      <div class="microcopy">Потяните САКА назад · тап/кнопка = автобросок · LMS отключён</div>
+      <button id="resetBtn" class="secondary">НОВАЯ ИГРА</button>
+      <div class="microcopy">Demo: результат считается по фактическому разлёту · LMS пока отключён</div>
     </footer>
 
     <div class="fatal" id="fatal" hidden>
@@ -192,7 +215,7 @@
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.25.0/babylonjs.loaders.min.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.9.11"></script>
-  <script src="src/game.js?v=0.9.11"></script>
+  <script src="src/config.js?v=0.10.0"></script>
+  <script src="src/game.js?v=0.10.0"></script>
 </body>
 </html>

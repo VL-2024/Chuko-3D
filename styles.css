@@ -89,3 +89,28 @@ button:disabled { opacity: .42; cursor: default; }
 
 .tune-panel::-webkit-scrollbar { width: 8px; }
 .tune-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 999px; }
+
+
+/* v0.10.0 game loop */
+.game-bar { position: fixed; z-index: 7; top: calc(54px + var(--safe-top)); left: 12px; display: flex; gap: 8px; align-items: center; }
+.mode-switch { display: flex; padding: 3px; border-radius: 12px; background: rgba(3,12,16,.66); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(8px); }
+.mode { min-height: 30px; padding: 0 9px; border-radius: 9px; background: transparent; color: rgba(255,255,255,.62); font-size: 9px; letter-spacing: .08em; }
+.mode.active { background: rgba(228,238,62,.95); color: #091015; }
+.mode:disabled { opacity: .35; }
+.ticket-box { min-width: 82px; padding: 5px 8px; border-radius: 11px; background: rgba(3,12,16,.66); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(8px); }
+.ticket-box span { display:block; font-size:8px; opacity:.55; letter-spacing:.10em; }
+.ticket-box strong { display:block; margin-top:1px; font-size:11px; font-variant-numeric:tabular-nums; }
+.denom-bar { position: fixed; z-index: 7; left: 50%; bottom: calc(176px + var(--safe-bottom)); transform: translateX(-50%); display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:14px; background:rgba(3,12,16,.68); border:1px solid rgba(255,255,255,.12); backdrop-filter:blur(8px); }
+.denom-bar > span { font-size:8px; opacity:.55; letter-spacing:.10em; margin-right:2px; }
+.denom-bar em { font-size:9px; opacity:.55; font-style:normal; }
+.denom { min-height:32px; min-width:46px; padding:0 8px; border-radius:10px; background:rgba(255,255,255,.10); color:#fff; font-size:11px; }
+.denom.active { background:#e4ee3e; color:#091015; }
+.result-card { position: fixed; z-index: 8; left:50%; bottom:calc(220px + var(--safe-bottom)); transform:translateX(-50%); width:min(82vw,320px); padding:10px 14px; border-radius:16px; text-align:center; background:rgba(3,12,16,.82); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(10px); box-shadow:0 14px 40px rgba(0,0,0,.26); }
+.result-card .result-kicker { display:block; font-size:8px; letter-spacing:.14em; opacity:.55; }
+.result-card strong { display:block; margin-top:2px; font-size:20px; }
+.result-card #resultSub { display:block; margin-top:2px; font-size:10px; opacity:.72; }
+@media (max-width: 430px) {
+  .perf { top: calc(98px + var(--safe-top)); }
+  .denom-bar { bottom: calc(174px + var(--safe-bottom)); }
+  .result-card { bottom: calc(220px + var(--safe-bottom)); }
+}

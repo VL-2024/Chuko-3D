@@ -20,7 +20,13 @@
     tuneCloseBtn: document.getElementById('tuneCloseBtn'),
     tuneDefaultsBtn: document.getElementById('tuneDefaultsBtn'),
     tuneCopyBtn: document.getElementById('tuneCopyBtn'),
-    tuneOutput: document.getElementById('tuneOutput')
+    tuneOutput: document.getElementById('tuneOutput'),
+    demoModeBtn: document.getElementById('demoModeBtn'),
+    realModeBtn: document.getElementById('realModeBtn'),
+    ticketNo: document.getElementById('ticketNo'),
+    resultCard: document.getElementById('resultCard'),
+    resultMain: document.getElementById('resultMain'),
+    resultSub: document.getElementById('resultSub')
   };
 
   let engine;
@@ -55,7 +61,13 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.11: dynamic round objects are created once and reused on every reset.
+  const gameState = {
+    mode: 'demo',
+    denomination: Number(C.game?.defaultDenomination || 25),
+    ticketNo: Number(C.game?.demoTicketStart || 100001),
+    resultShown: false
+  };
+  // v0.10.0: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -216,7 +228,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.11] GLB bounds', {
+    console.info('[CHUKO 0.10.0] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -940,7 +952,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.11: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.10.0: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1074,7 +1086,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.11 pooling/reset -------------------------------------------------------
+  // v0.10.0 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1189,6 +1201,59 @@
     ];
   }
 
+  function updateGameHud() {
+    if (ui.ticketNo) ui.ticketNo.textContent = `#${gameState.ticketNo}`;
+    document.querySelectorAll('[data-denom]').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.denom) === gameState.denomination);
+    });
+  }
+
+  function hideGameResult() {
+    gameState.resultShown = false;
+    if (ui.resultCard) ui.resultCard.hidden = true;
+  }
+
+  function computePhysicalResult() {
+    const radius = Number(C.game?.resultRadius || C.visual?.fieldInnerRadius || 3.14);
+    const out = roundPool.chukos.filter(item => {
+      if (!item?.mesh) return false;
+      return Math.hypot(item.mesh.position.x, item.mesh.position.z) > radius;
+    }).length;
+    const khanOut = !!roundPool.khan?.mesh && Math.hypot(roundPool.khan.mesh.position.x, roundPool.khan.mesh.position.z) > radius;
+    return { out, khanOut };
+  }
+
+  function showGameResult() {
+    if (!roundPool.initialized || gameState.resultShown) return;
+    const result = computePhysicalResult();
+    gameState.resultShown = true;
+    if (ui.resultMain) ui.resultMain.textContent = `Выбито: ${result.out}`;
+    if (ui.resultSub) ui.resultSub.textContent = result.khanOut ? 'ХАН выбит' : 'ХАН остался в круге';
+    if (ui.resultCard) ui.resultCard.hidden = false;
+  }
+
+  function startNewGameTicket() {
+    gameState.ticketNo += 1;
+    hideGameResult();
+    updateGameHud();
+    resetRound();
+  }
+
+  function bindGameUi() {
+    document.querySelectorAll('[data-denom]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (thrown) return;
+        gameState.denomination = Number(btn.dataset.denom) || 25;
+        updateGameHud();
+      });
+    });
+    ui.demoModeBtn?.addEventListener('click', () => {
+      gameState.mode = 'demo';
+      ui.demoModeBtn.classList.add('active');
+    });
+    updateGameHud();
+  }
+
   function resetRound() {
     const resetStartedAt = performance.now();
     window.clearTimeout(resetTimer);
@@ -1202,7 +1267,8 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.11 · полировка сцены · потяните и отпустите';
+    hideGameResult();
+    ui.hint.textContent = `Билет #${gameState.ticketNo} · ${gameState.denomination} сом · потяните САКА`;
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -1268,7 +1334,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.11] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.10.0] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1674,7 +1740,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.11 · полировка поля и света · потяните и отпустите';
+        ui.hint.textContent = `Билет #${gameState.ticketNo} · ${gameState.denomination} сом · потяните САКА`;
       }
       aimState.tapCandidate = false;
     });
@@ -1755,9 +1821,10 @@
 
     resetTimer = window.setTimeout(() => {
       ui.throwBtn.disabled = false;
-      ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
+      ui.throwBtn.textContent = 'НОВАЯ ИГРА';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.11 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      showGameResult();
+      ui.hint.textContent = 'Результат зафиксирован · нажмите «Новая игра»';
     }, C.throw.settleMs);
   }
 
@@ -2008,6 +2075,7 @@
     await loadGlbModels();
     createAimVisuals();
     bindTuner();
+    bindGameUi();
     applyCameraTuning();
     applyPilePieceScale();
     resetRound();
@@ -2039,9 +2107,9 @@
     window.addEventListener('resize', () => engine.resize(), { passive: true });
     ui.throwBtn.addEventListener('click', () => {
       if (!thrown) throwSaka();
-      else resetRound();
+      else startNewGameTicket();
     });
-    ui.resetBtn.addEventListener('click', resetRound);
+    ui.resetBtn.addEventListener('click', startNewGameTicket);
     bindAimControls();
 
     updatePerf();

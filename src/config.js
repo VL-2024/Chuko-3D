@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.9.11',
+  version: '0.10.0',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -130,6 +130,14 @@ window.CHUKO3D_CONFIG = Object.freeze({
     khanTargetMax: 0.54,
     sakaTargetMax: 0.76,
     sakaYaw: Math.PI
+  },
+
+  game: {
+    denominations: [25, 50, 100],
+    defaultDenomination: 25,
+    demoTicketStart: 100001,
+    resultRadius: 3.14,
+    resultDelayMs: 80
   },
 
   mobile: {
