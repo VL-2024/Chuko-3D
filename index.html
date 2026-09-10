@@ -8,8 +8,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · prototype 0.8.22</title>
-  <link rel="stylesheet" href="styles.css?v=0.8.22" />
+  <title>ЧҮКӨ Modern 3D · GLB integration 0.9.1</title>
+  <link rel="stylesheet" href="styles.css?v=0.9.1" />
 </head>
 <body>
   <main id="app">
@@ -22,7 +22,7 @@
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
 
     <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.8.22</em></div>
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.9.1 · GLB</em></div>
       <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
     </header>
 
@@ -117,6 +117,34 @@
       </section>
 
       <section class="tune-group">
+        <h3>GLB МОДЕЛИ</h3>
+        <label class="tune-row">
+          <span>Размер GLB чүкө <output data-out="chukoModelScale"></output></span>
+          <input type="range" min="0.72" max="1.28" step="0.02" data-tune="chukoModelScale">
+        </label>
+        <label class="tune-row">
+          <span>Высота GLB чүкө <output data-out="chukoModelY"></output></span>
+          <input type="range" min="-0.16" max="0.16" step="0.01" data-tune="chukoModelY">
+        </label>
+        <label class="tune-row">
+          <span>Размер GLB ХАН <output data-out="khanModelScale"></output></span>
+          <input type="range" min="0.72" max="1.28" step="0.02" data-tune="khanModelScale">
+        </label>
+        <label class="tune-row">
+          <span>Высота GLB ХАН <output data-out="khanModelY"></output></span>
+          <input type="range" min="-0.16" max="0.16" step="0.01" data-tune="khanModelY">
+        </label>
+        <label class="tune-row">
+          <span>Размер GLB САКА <output data-out="sakaModelScale"></output></span>
+          <input type="range" min="0.72" max="1.28" step="0.02" data-tune="sakaModelScale">
+        </label>
+        <label class="tune-row">
+          <span>Высота GLB САКА <output data-out="sakaModelY"></output></span>
+          <input type="range" min="-0.20" max="0.20" step="0.01" data-tune="sakaModelY">
+        </label>
+      </section>
+
+      <section class="tune-group">
         <h3>САКА</h3>
         <label class="tune-row">
           <span>САКА влево / вправо <output data-out="sakaX"></output></span>
@@ -129,7 +157,7 @@
       </section>
 
       <div class="tune-actions">
-        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.8.22</button>
+        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.9.1</button>
         <button id="tuneCopyBtn" type="button">КОПИРОВАТЬ ПАРАМЕТРЫ</button>
       </div>
       <textarea id="tuneOutput" class="tune-output" readonly rows="5" aria-label="Текущие параметры"></textarea>
@@ -148,8 +176,9 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.25.0/babylonjs.loaders.min.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.8.22"></script>
-  <script src="src/game.js?v=0.8.22"></script>
+  <script src="src/config.js?v=0.9.1"></script>
+  <script src="src/game.js?v=0.9.1"></script>
 </body>
 </html>

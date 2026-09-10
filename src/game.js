@@ -41,14 +41,20 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.22: dynamic round objects are created once and reused on every reset.
+  // v0.9.1: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
+  const modelBank = {
+    ready: false,
+    chuko: null,
+    khan: null,
+    saka: null
+  };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0822-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v091-glb-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 264,
@@ -65,7 +71,13 @@
     cameraTargetX: 0.00,
     cameraTargetZ: 0.00,
     sakaX: -0.16,
-    sakaZ: 2.85
+    sakaZ: 2.85,
+    chukoModelScale: 1.00,
+    chukoModelY: 0.00,
+    khanModelScale: 1.00,
+    khanModelY: 0.00,
+    sakaModelScale: 1.00,
+    sakaModelY: 0.00
   });
 
   function loadTuning() {
@@ -102,6 +114,7 @@
       if (item?.mesh?.scaling?.setAll) item.mesh.scaling.setAll(s);
     }
     if (roundPool.khan?.mesh?.scaling?.setAll) roundPool.khan.mesh.scaling.setAll(s);
+    applyAllVisualTuning();
   }
 
 
@@ -138,6 +151,155 @@
 
     setPileBodiesMotionDynamic();
     pileReleasedForThrow = true;
+  }
+
+  function getTemplateBounds(meshes) {
+    const geometryMeshes = meshes.filter(m => m && typeof m.getTotalVertices === 'function' && m.getTotalVertices() > 0);
+    let min = new BABYLON.Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+    let max = new BABYLON.Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
+    for (const mesh of geometryMeshes) {
+      mesh.computeWorldMatrix(true);
+      const box = mesh.getBoundingInfo().boundingBox;
+      min = BABYLON.Vector3.Minimize(min, box.minimumWorld);
+      max = BABYLON.Vector3.Maximize(max, box.maximumWorld);
+    }
+    const size = max.subtract(min);
+    return { min, max, size, maxExtent: Math.max(size.x, size.y, size.z) };
+  }
+
+  async function loadGlbTemplate(kind, fileName) {
+    const result = await BABYLON.SceneLoader.ImportMeshAsync(null, C.glb.rootUrl, fileName, scene);
+    const topLevel = result.meshes.filter(m => !m.parent);
+    const root = topLevel.find(m => m.name === '__root__') || topLevel[0] || result.meshes[0];
+    if (!root) throw new Error(`GLB ${kind}: корневой mesh не найден`);
+
+    result.meshes.forEach(m => {
+      m.isPickable = false;
+      m.alwaysSelectAsActiveMesh = false;
+    });
+    const bounds = getTemplateBounds(result.meshes);
+    if (!Number.isFinite(bounds.maxExtent) || bounds.maxExtent <= 0) {
+      throw new Error(`GLB ${kind}: некорректные размеры модели`);
+    }
+    root.setEnabled(false);
+    return { kind, fileName, root, bounds, meshes: result.meshes };
+  }
+
+  async function loadGlbModels() {
+    if (!BABYLON.SceneLoader) throw new Error('Babylon GLTF loader не загрузился');
+    ui.badge.textContent = 'HAVOK · GLB…';
+    const [chuko, khan, sakaModel] = await Promise.all([
+      loadGlbTemplate('chuko', C.glb.chukoFile),
+      loadGlbTemplate('khan', C.glb.khanFile),
+      loadGlbTemplate('saka', C.glb.sakaFile)
+    ]);
+    modelBank.chuko = chuko;
+    modelBank.khan = khan;
+    modelBank.saka = sakaModel;
+    modelBank.ready = true;
+    ui.badge.textContent = 'HAVOK · GLB READY';
+    console.info('[CHUKO 0.9.1] GLB bounds', {
+      chuko: chuko.bounds.size,
+      khan: khan.bounds.size,
+      saka: sakaModel.bounds.size
+    });
+  }
+
+  function visualTuningForKind(kind) {
+    if (kind === 'chuko') return {
+      scale: Number(tuning.chukoModelScale || 1),
+      y: Number(tuning.chukoModelY || 0),
+      targetMax: Number(C.glb.chukoTargetMax || 0.53),
+      yaw: 0,
+      commonScale: pilePieceScale()
+    };
+    if (kind === 'khan') return {
+      scale: Number(tuning.khanModelScale || 1),
+      y: Number(tuning.khanModelY || 0),
+      targetMax: Number(C.glb.khanTargetMax || 0.54),
+      yaw: 0,
+      commonScale: pilePieceScale()
+    };
+    return {
+      scale: Number(tuning.sakaModelScale || 1),
+      y: Number(tuning.sakaModelY || 0),
+      targetMax: Number(C.glb.sakaTargetMax || 0.76),
+      yaw: Number(C.glb.sakaYaw || Math.PI / 2),
+      commonScale: 1
+    };
+  }
+
+  function createGlbVisual(kind, name) {
+    const template = modelBank[kind];
+    if (!template) return null;
+
+    const anchor = new BABYLON.TransformNode(`${name}-visual-anchor`, scene);
+    anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
+    const pose = new BABYLON.TransformNode(`${name}-visual-pose`, scene);
+    pose.parent = anchor;
+    pose.rotationQuaternion = BABYLON.Quaternion.Identity();
+
+    const rootClone = template.root.clone(`${name}-glb-root`, pose, false);
+    if (!rootClone) {
+      anchor.dispose();
+      return null;
+    }
+    rootClone.setEnabled(true);
+    if (typeof rootClone.getDescendants === 'function') {
+      rootClone.getDescendants(false).forEach(n => {
+        if (typeof n.setEnabled === 'function') n.setEnabled(true);
+        if ('isPickable' in n) n.isPickable = false;
+      });
+    }
+
+    const descendants = typeof rootClone.getChildMeshes === 'function' ? rootClone.getChildMeshes(false) : [];
+    if (rootClone.getTotalVertices && rootClone.getTotalVertices() > 0) descendants.push(rootClone);
+    descendants.forEach(m => addShadow(m));
+
+    const visual = {
+      kind,
+      anchor,
+      pose,
+      root: rootClone,
+      baseScale: 1 / template.bounds.maxExtent
+    };
+    applyVisualTuning(visual);
+    return visual;
+  }
+
+  function applyVisualTuning(visual) {
+    if (!visual) return;
+    const vt = visualTuningForKind(visual.kind);
+    const s = visual.baseScale * vt.targetMax * vt.scale * vt.commonScale;
+    visual.pose.scaling.setAll(s);
+    visual.pose.position.set(0, vt.y, 0);
+    visual.pose.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0, vt.yaw, 0);
+  }
+
+  function applyAllVisualTuning() {
+    if (!roundPool.initialized) return;
+    roundPool.chukos.forEach(item => applyVisualTuning(item.visual));
+    applyVisualTuning(roundPool.khan?.visual);
+    applyVisualTuning(roundPool.saka?.visual);
+  }
+
+  function syncVisualItem(item) {
+    if (!item?.mesh || !item?.visual?.anchor) return;
+    const anchor = item.visual.anchor;
+    anchor.position.copyFrom(item.mesh.position);
+    if (item.mesh.rotationQuaternion) {
+      if (!anchor.rotationQuaternion) anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
+      anchor.rotationQuaternion.copyFrom(item.mesh.rotationQuaternion);
+    } else {
+      anchor.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(item.mesh.rotation.x, item.mesh.rotation.y, item.mesh.rotation.z);
+    }
+  }
+
+  function syncAllGlbVisuals() {
+    if (!modelBank.ready || !roundPool.initialized) return;
+    roundPool.chukos.forEach(syncVisualItem);
+    syncVisualItem(roundPool.khan);
+    syncVisualItem(roundPool.saka);
   }
 
   function applyDomTuning() {
@@ -178,7 +340,7 @@
     const v = Number(value);
     if (['fieldWidth'].includes(key)) return `${Math.round(v)}vw`;
     if (['fieldBottom','fieldX','bgX','bgY'].includes(key)) return `${Math.round(v)}px`;
-    if (key === 'bgScale' || key === 'chukoScale') return `${v.toFixed(2)}×`; 
+    if (['bgScale','chukoScale','chukoModelScale','khanModelScale','sakaModelScale'].includes(key)) return `${v.toFixed(2)}×`; 
     if (key === 'cameraRadius') return v.toFixed(2);
     return v.toFixed(2);
   }
@@ -242,6 +404,7 @@
         applyDomTuning();
         applyCameraTuning();
         applyPilePieceScale();
+        applyAllVisualTuning();
         const out = document.querySelector(`[data-out="${key}"]`);
         if (out) out.textContent = tuneNumberLabel(key, value);
         if (ui.tuneOutput) ui.tuneOutput.value = JSON.stringify(tuning, null, 2);
@@ -255,6 +418,7 @@
       applyDomTuning();
       applyCameraTuning();
       applyPilePieceScale();
+      applyAllVisualTuning();
       refreshTuneUi();
       scheduleTuningRoundReset();
     });
@@ -478,7 +642,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.22: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.1: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -589,11 +753,14 @@
       },
       scene
     );
-    bodies.push({ mesh, aggregate, role: isKhan ? 'khan' : 'chuko' });
-    return { mesh, aggregate };
+    const role = isKhan ? 'khan' : 'chuko';
+    const visual = modelBank.ready ? createGlbVisual(role, name) : null;
+    mesh.isVisible = !visual;
+    bodies.push({ mesh, aggregate, role });
+    return { mesh, aggregate, visual };
   }
 
-  // v0.8.22 pooling/reset -------------------------------------------------------
+  // v0.9.1 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -687,10 +854,14 @@
       },
       scene
     );
+    const sakaVisual = modelBank.ready ? createGlbVisual('saka', 'SAKA') : null;
+    sakaMesh.isVisible = !sakaVisual;
     bodies.push({ mesh: sakaMesh, aggregate, role: 'saka' });
-    roundPool.saka = { mesh: sakaMesh, aggregate };
+    roundPool.saka = { mesh: sakaMesh, aggregate, visual: sakaVisual };
 
     roundPool.initialized = true;
+    applyAllVisualTuning();
+    syncAllGlbVisuals();
   }
 
   function pilePositions() {
@@ -717,7 +888,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.22 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.9.1 · GLB модели · потяните САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -779,7 +950,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.22] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.1] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1185,7 +1356,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.22 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.9.1 · GLB модели · потяните САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1268,7 +1439,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.22 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.1 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1515,6 +1686,7 @@
 
     await initPhysics();
     createEnvironment();
+    await loadGlbModels();
     createAimVisuals();
     bindTuner();
     applyCameraTuning();
@@ -1522,6 +1694,7 @@
     resetRound();
 
     scene.onBeforeRenderObservable.add(() => {
+      syncAllGlbVisuals();
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();

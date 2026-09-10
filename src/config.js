@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.8.22',
+  version: '0.9.1',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -118,6 +118,18 @@ window.CHUKO3D_CONFIG = Object.freeze({
     radiusMobile: 8.45,
     radiusDesktop: 8.00,
     target: { x: 0, y: 0.16, z: 0.04 }
+  },
+
+  glb: {
+    rootUrl: 'assets/models/',
+    chukoFile: 'Chuko_4435_Meshy_mobile.glb',
+    khanFile: 'Khan_quad_mobile.glb',
+    sakaFile: 'Saka_3118_mobile_2K_1K.glb',
+    // Target longest local dimension before the existing gameplay scale is applied.
+    chukoTargetMax: 0.53,
+    khanTargetMax: 0.54,
+    sakaTargetMax: 0.76,
+    sakaYaw: Math.PI / 2
   },
 
   mobile: {
