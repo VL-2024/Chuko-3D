@@ -9,11 +9,17 @@ html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; backg
 body { overscroll-behavior: none; }
 #app { position: relative; isolation: isolate; }
 .art-stack { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: #000; }
-.bg-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; transform: translate(var(--bg-x, 0px), var(--bg-y, 0px)) scale(var(--bg-scale, 1)); transform-origin: 50% 50%; }
-.field-photo { position: absolute; left: 50%; bottom: calc(var(--field-bottom, 162px) + var(--safe-bottom)); transform: translateX(-50%); margin-left: var(--field-x, 0px); width: min(var(--field-width, 102vw), 680px); max-width: none; height: auto; }
+.bg-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; transform: translate(var(--bg-x, 0px), var(--bg-y, 0px)) scale(var(--bg-scale, 1)); transform-origin: 50% 50%; filter: brightness(.82) saturate(.84) contrast(.96); }
+.field-photo { position: absolute; left: 50%; bottom: calc(var(--field-bottom, 162px) + var(--safe-bottom)); transform: translateX(-50%); margin-left: var(--field-x, 0px); width: min(var(--field-width, 102vw), 680px); max-width: none; height: auto; filter: brightness(.85) saturate(.74) contrast(.98); }
+.field-tone, .field-focus { position: absolute; left: 50%; bottom: calc(var(--field-bottom, 162px) + var(--safe-bottom)); transform: translateX(-50%); margin-left: var(--field-x, 0px); width: min(var(--field-width, 102vw), 680px); aspect-ratio: 1 / 1; border-radius: 50%; }
+.field-tone { background: radial-gradient(circle at 50% 50%, rgba(34,31,25,.22) 0%, rgba(27,25,20,.16) 44%, rgba(8,12,14,.08) 100%); }
+.field-focus { background:
+  radial-gradient(ellipse at 50% 49%, rgba(9,10,12,.22) 0%, rgba(9,10,12,.16) 23%, rgba(9,10,12,.08) 34%, rgba(9,10,12,0) 52%),
+  radial-gradient(ellipse at 50% 49%, rgba(245,236,215,.06) 0%, rgba(245,236,215,.025) 16%, rgba(245,236,215,0) 28%),
+  radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 60%, rgba(0,0,0,.12) 100%); }
 .art-vignette { position: absolute; inset: 0; background:
-  linear-gradient(180deg, rgba(4,10,16,.34), rgba(4,10,16,0) 18%),
-  linear-gradient(0deg, rgba(3,11,15,.50), rgba(3,11,15,0) 18%);
+  linear-gradient(180deg, rgba(4,10,16,.40), rgba(4,10,16,0) 18%),
+  linear-gradient(0deg, rgba(3,11,15,.58), rgba(3,11,15,0) 18%);
 }
 
 #renderCanvas { position: fixed; inset: 0; z-index: 1; width: 100%; height: 100%; display: block; outline: none; touch-action: none; background: transparent; }

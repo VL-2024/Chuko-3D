@@ -26,6 +26,12 @@
   let engine;
   let scene;
   let field;
+  let pileShadow = null;
+  let sakaShadow = null;
+  let sakaShadowMat = null;
+  let sakaShadowBaseAlpha = 0.20;
+  let sakaShadowBaseScale = 0.74;
+  let sakaShadowBaseY = 0.014;
   let saka = null;
   let sakaAggregate = null;
   let bodies = [];
@@ -41,7 +47,7 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.9.3: dynamic round objects are created once and reused on every reset.
+  // v0.9.5: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -54,7 +60,7 @@
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v093-glb-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v094-glb-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -72,15 +78,15 @@
     cameraTargetZ: 0.18,
     sakaX: -0.16,
     sakaZ: 2.85,
-    chukoModelScale: 1.04,
+    chukoModelScale: 1.10,
     chukoModelY: -0.01,
     khanModelScale: 1.22,
     khanModelY: 0.01,
     sakaModelScale: 0.90,
     sakaModelY: 0.00,
-    sakaModelYawDeg: 20,
-    sakaModelPitchDeg: 0,
-    sakaModelRollDeg: 0
+    sakaModelYawDeg: 0,
+    sakaModelPitchDeg: -100,
+    sakaModelRollDeg: -90
   });
 
   function loadTuning() {
@@ -118,6 +124,7 @@
     }
     if (roundPool.khan?.mesh?.scaling?.setAll) roundPool.khan.mesh.scaling.setAll(s);
     applyAllVisualTuning();
+    updatePileShadow();
   }
 
 
@@ -201,7 +208,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.9.3] GLB bounds', {
+    console.info('[CHUKO 0.9.5] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -315,6 +322,7 @@
     root.style.setProperty('--bg-scale', String(Number(tuning.bgScale)));
     root.style.setProperty('--bg-x', `${Number(tuning.bgX)}px`);
     root.style.setProperty('--bg-y', `${Number(tuning.bgY)}px`);
+    updatePileShadow();
   }
 
   function applyCameraTuning() {
@@ -465,6 +473,66 @@
     m.roughness = roughness;
     m.metallic = metallic;
     return m;
+  }
+
+  function createRadialShadowTexture(name) {
+    const size = 256;
+    const tex = new BABYLON.DynamicTexture(name, { width: size, height: size }, scene, false);
+    const ctx = tex.getContext();
+    ctx.clearRect(0, 0, size, size);
+    const grad = ctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.10, size * 0.5, size * 0.5, size * 0.5);
+    grad.addColorStop(0.0, 'rgba(0,0,0,0.85)');
+    grad.addColorStop(0.32, 'rgba(0,0,0,0.46)');
+    grad.addColorStop(0.66, 'rgba(0,0,0,0.12)');
+    grad.addColorStop(1.0, 'rgba(0,0,0,0.0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    tex.hasAlpha = true;
+    tex.update(false);
+    return tex;
+  }
+
+  function createShadowPlane(name, width, height, alpha = 0.22) {
+    const mesh = BABYLON.MeshBuilder.CreateGround(name, { width, height, subdivisions: 1 }, scene);
+    const mat = new BABYLON.StandardMaterial(`${name}-mat`, scene);
+    mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+    mat.specularColor = new BABYLON.Color3(0, 0, 0);
+    mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+    mat.opacityTexture = createRadialShadowTexture(`${name}-tex`);
+    mat.useAlphaFromDiffuseTexture = false;
+    mat.alpha = alpha;
+    mat.disableLighting = true;
+    mesh.material = mat;
+    mesh.isPickable = false;
+    mesh.receiveShadows = false;
+    mesh.renderingGroupId = 0;
+    return { mesh, mat };
+  }
+
+  function updatePileShadow() {
+    if (!pileShadow) return;
+    const spreadX = Number(tuning.spreadX || 0.7);
+    const spreadZ = Number(tuning.spreadZ || 0.68);
+    const pieceScale = pilePieceScale();
+    pileShadow.position.set(Number(tuning.pileX || 0), 0.012, Number(tuning.pileZ || 0) - 0.03);
+    pileShadow.scaling.x = (1.10 + spreadX * 1.85) * pieceScale;
+    pileShadow.scaling.z = (0.96 + spreadZ * 1.62) * pieceScale;
+  }
+
+  function updateSakaShadow() {
+    if (!sakaShadow || !saka || !sakaShadowMat) return;
+    const h = Math.max(0, saka.position.y);
+    const fade = Math.max(0.28, 1 - h * 0.10);
+    const scale = Math.max(0.52, 1 - h * 0.14);
+    sakaShadow.position.set(saka.position.x, sakaShadowBaseY, saka.position.z);
+    sakaShadow.scaling.x = sakaShadowBaseScale * scale;
+    sakaShadow.scaling.z = sakaShadowBaseScale * 0.84 * scale;
+    sakaShadowMat.alpha = sakaShadowBaseAlpha * fade;
+  }
+
+  function updateShadowHelpers() {
+    updatePileShadow();
+    updateSakaShadow();
   }
 
   function mergeParts(name, parts, mat) {
@@ -648,7 +716,7 @@
   }
 
   function createEnvironment() {
-    // v0.9.3: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.9.5: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -673,14 +741,14 @@
     camera.inputs.clear();
 
     const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.0, 1, -0.05), scene);
-    hemi.intensity = 0.92;
-    hemi.diffuse = new BABYLON.Color3(0.95, 0.92, 0.84);
-    hemi.groundColor = new BABYLON.Color3(0.24, 0.18, 0.12);
+    hemi.intensity = 0.88;
+    hemi.diffuse = new BABYLON.Color3(0.92, 0.91, 0.88);
+    hemi.groundColor = new BABYLON.Color3(0.20, 0.19, 0.18);
 
-    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.46, -1, 0.30), scene);
+    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.40, -1, 0.26), scene);
     sun.position = new BABYLON.Vector3(5, 8, -7);
-    sun.intensity = 1.58;
-    sun.diffuse = new BABYLON.Color3(1.0, 0.83, 0.60);
+    sun.intensity = 1.66;
+    sun.diffuse = new BABYLON.Color3(1.0, 0.90, 0.72);
 
     const shadowMapSize = isMobile() ? 512 : 1024;
     const shadows = new BABYLON.ShadowGenerator(shadowMapSize, sun);
@@ -724,6 +792,15 @@
     );
     bodies.push({ mesh: groundPhysicsMesh, aggregate: groundAggregate, permanent: true });
 
+    const pileShadowHelper = createShadowPlane('pile-shadow', 2.5, 2.0, 0.24);
+    pileShadow = pileShadowHelper.mesh;
+    pileShadow.rotationQuaternion = BABYLON.Quaternion.Identity();
+
+    const sakaShadowHelper = createShadowPlane('saka-shadow', 0.9, 0.72, sakaShadowBaseAlpha);
+    sakaShadow = sakaShadowHelper.mesh;
+    sakaShadowMat = sakaShadowHelper.mat;
+    sakaShadow.rotationQuaternion = BABYLON.Quaternion.Identity();
+    updatePileShadow();
   }
 
   function addShadow(mesh) {
@@ -766,7 +843,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.9.3 pooling/reset -------------------------------------------------------
+  // v0.9.5 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -894,7 +971,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.9.3 · GLB модели · САКА повернута · потяните и отпустите';
+    ui.hint.textContent = 'v0.9.5 · полировка поля и света · потяните и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -944,6 +1021,8 @@
       false
     );
 
+    updatePileShadow();
+    updateSakaShadow();
     updateBodyCount();
 
     // Keep the visible default trajectory before the user touches SAKA.
@@ -956,7 +1035,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.9.3] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.9.5] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1362,7 +1441,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.9.3 · GLB модели · САКА повернута · потяните и отпустите';
+        ui.hint.textContent = 'v0.9.5 · полировка поля и света · потяните и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1445,7 +1524,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.9.3 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
+      ui.hint.textContent = 'v0.9.5 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1701,6 +1780,7 @@
 
     scene.onBeforeRenderObservable.add(() => {
       syncAllGlbVisuals();
+      updateShadowHelpers();
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
