@@ -41,13 +41,14 @@
   let aimState = { dragging: false, pointerId: null, power: 0, guideDir: null, targetPoint: null, tapCandidate: false, downX: 0, downY: 0 };
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
-  // v0.8.16: dynamic round objects are created once and reused on every reset.
+  // v0.8.22: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
+  const chukoClampPending = new Set();
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0815-tuning';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0822-tuning';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 264,
@@ -477,7 +478,7 @@
   }
 
   function createEnvironment() {
-    // v0.8.16: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.8.22: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -552,6 +553,7 @@
       scene
     );
     bodies.push({ mesh: groundPhysicsMesh, aggregate: groundAggregate, permanent: true });
+
   }
 
   function addShadow(mesh) {
@@ -591,7 +593,7 @@
     return { mesh, aggregate };
   }
 
-  // v0.8.16 pooling/reset -------------------------------------------------------
+  // v0.8.22 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -715,7 +717,7 @@
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
-    ui.hint.textContent = 'v0.8.16 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
+    ui.hint.textContent = 'v0.8.22 · кучка отпускается только у точки удара ⚙ · потяните синюю САКА назад и отпустите';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -777,7 +779,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.8.16] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.8.22] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1183,7 +1185,7 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = 'v0.8.16 · потяните синюю САКА назад и отпустите';
+        ui.hint.textContent = 'v0.8.22 · потяните синюю САКА назад и отпустите';
       }
       aimState.tapCandidate = false;
     });
@@ -1266,7 +1268,7 @@
       ui.throwBtn.disabled = false;
       ui.throwBtn.textContent = 'ЕЩЁ БРОСОК';
       throwState.active = false;
-      ui.hint.textContent = 'v0.8.16 · разлёт восстановлен, маркер уточнён ⚙';
+      ui.hint.textContent = 'v0.8.22 · САКА: чистая баллистика · чүкө ограничены отдельно ⚙';
     }, C.throw.settleMs);
   }
 
@@ -1364,6 +1366,115 @@
     ui.bodyCount.textContent = String(bodies.length);
   }
 
+  function clampChukoInsideView(item, nx, nz, clampRadius, clampY = null) {
+    if (!item?.aggregate?.body || !item?.mesh || chukoClampPending.has(item)) return;
+    chukoClampPending.add(item);
+    const body = item.aggregate.body;
+    const mesh = item.mesh;
+    const rot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
+    const y = clampY == null ? Math.max(0.08, Math.min(mesh.position.y, 0.92)) : clampY;
+
+    try {
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+      body.setLinearVelocity(BABYLON.Vector3.Zero());
+      body.setAngularVelocity(BABYLON.Vector3.Zero());
+      body.disablePreStep = false;
+      mesh.position.set(nx * clampRadius, y, nz * clampRadius);
+      mesh.rotationQuaternion = rot;
+      mesh.computeWorldMatrix(true);
+
+      scene.onAfterRenderObservable.addOnce(() => {
+        try {
+          body.disablePreStep = true;
+          body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+          body.setLinearVelocity(new BABYLON.Vector3(-nx * 0.18, 0, -nz * 0.18));
+          body.setAngularVelocity(BABYLON.Vector3.Zero());
+        } catch (_) {}
+        chukoClampPending.delete(item);
+      });
+    } catch (_) {
+      chukoClampPending.delete(item);
+    }
+  }
+
+  function projectPieceToScreen(mesh) {
+    if (!scene?.activeCamera || !engine || !mesh) return null;
+    try {
+      return BABYLON.Vector3.Project(
+        mesh.getAbsolutePosition(),
+        BABYLON.Matrix.Identity(),
+        scene.getTransformMatrix(),
+        scene.activeCamera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function containScatterInView() {
+    if (!roundPool.initialized || !thrown) return;
+
+    // IMPORTANT: only chükö and KHAN are constrained here. SAKA is never touched,
+    // so its ballistic trajectory and Havok flight remain exactly as in v0.8.19.
+    const items = [...roundPool.chukos, roundPool.khan].filter(Boolean);
+    const softRadius = 2.72;
+    const hardRadius = 2.94;
+    const absoluteRadius = 3.08;
+    const clampRadius = 2.82;
+    const w = engine.getRenderWidth();
+    const h = engine.getRenderHeight();
+
+    for (const item of items) {
+      const body = item?.aggregate?.body;
+      const mesh = item?.mesh;
+      if (!body || !mesh) continue;
+
+      const r = Math.hypot(mesh.position.x, mesh.position.z);
+      const inv = 1 / Math.max(1e-6, r || 1);
+      const nx = mesh.position.x * inv;
+      const nz = mesh.position.z * inv;
+      const screen = projectPieceToScreen(mesh);
+
+      const visuallyOutside = screen && (
+        screen.x < w * 0.055 || screen.x > w * 0.945 ||
+        screen.y < h * 0.055 || screen.y > h * 0.895
+      );
+
+      // Absolute guarantee: if a chükö reaches the visual border or leaves the
+      // safe world radius, return that CHÜKÖ only. No physics wall exists for SAKA.
+      if (visuallyOutside || r >= absoluteRadius) {
+        clampChukoInsideView(item, nx, nz, clampRadius);
+        continue;
+      }
+
+      const vel = readLinearVelocity(body);
+
+      // Limit rare upward launches without changing the normal scatter.
+      if (mesh.position.y > 1.32 && vel.y > 0) {
+        body.setLinearVelocity(new BABYLON.Vector3(vel.x * 0.82, -0.22, vel.z * 0.82));
+        continue;
+      }
+
+      if (r <= softRadius) continue;
+      const outward = vel.x * nx + vel.z * nz;
+      let vx = vel.x * 0.86;
+      let vz = vel.z * 0.86;
+      let vy = Math.min(vel.y, 0.48);
+
+      if (outward > 0) {
+        const strength = r >= hardRadius ? 1.55 : 1.18;
+        vx -= nx * outward * strength;
+        vz -= nz * outward * strength;
+      }
+      if (r >= hardRadius) {
+        const pull = (r - hardRadius + 0.03) * 5.0;
+        vx -= nx * pull;
+        vz -= nz * pull;
+      }
+      body.setLinearVelocity(new BABYLON.Vector3(vx, vy, vz));
+    }
+  }
+
   function updatePerf() {
     const fps = engine.getFps();
     const frame = 1000 / Math.max(1, fps);
@@ -1414,6 +1525,7 @@
       correctFinalApproachToAim();
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
+      containScatterInView();
       if (saka && saka.position.y < -2.5) {
         throwState.active = false;
         pileReleasedForThrow = false;
