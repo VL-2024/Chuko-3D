@@ -101,7 +101,7 @@
     scatterComplete: false,
     active: false
   };
-  // v0.12.1: dynamic round objects are created once and reused on every reset.
+  // v0.12.2: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -271,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.12.1] GLB bounds', {
+    console.info('[CHUKO 0.12.2] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -1006,7 +1006,7 @@
   }
 
   function createEnvironment() {
-    // v0.12.1: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.12.2: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1140,7 +1140,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.12.1 pooling/reset -------------------------------------------------------
+  // v0.12.2 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1430,95 +1430,200 @@
     );
   }
 
+
+  function pointDistanceXZ(a, b) {
+    return Math.hypot((a?.x || 0) - (b?.x || 0), (a?.z || 0) - (b?.z || 0));
+  }
+
+  function chooseSeparatedWhiteMetricPoint(angle, metric, y, usedPoints, minSep, rng, inside=true) {
+    let best = null;
+    let bestSep = -1;
+
+    // Try angle + metric variations around the requested slot.
+    for (let attempt = 0; attempt < 18; attempt++) {
+      const a = angle + (rng() - 0.5) * (inside ? 0.26 : 0.16);
+      const m = metric + (rng() - 0.5) * (inside ? 0.055 : 0.035);
+      const p = worldPointForWhiteMetric(a, m, y);
+      const sep = usedPoints.length
+        ? Math.min(...usedPoints.map(other => pointDistanceXZ(p, other)))
+        : 999;
+
+      if (sep > bestSep) {
+        best = p;
+        bestSep = sep;
+      }
+      if (sep >= minSep) return p;
+    }
+
+    return best || worldPointForWhiteMetric(angle, metric, y);
+  }
+
+  function outsideFanOffset(order, count, step) {
+    if (count <= 1) return 0;
+    // Alternate left/right around the impact direction:
+    // 0, +step, -step, +2step, -2step...
+    // This keeps the result connected to the impact point but prevents all
+    // winning chükö from flying into one narrow sector.
+    if (count % 2 === 1) {
+      if (order === 0) return 0;
+      const k = Math.ceil(order / 2);
+      return (order % 2 ? 1 : -1) * k * step;
+    }
+
+    const k = Math.floor(order / 2);
+    return (order % 2 ? 1 : -1) * (k + 0.5) * step;
+  }
+
   function prepareScenarioLandingPlan(tp) {
     if (!scenarioRuntime.active || !scenarioRuntime.plan || !roundPool.initialized) return;
 
     const plan = scenarioRuntime.plan;
     const count = Math.max(0, Math.min(C.pile.chukoCount, Number(plan.regular || 0)));
-    const rng = seededRng(`${scenarioRuntime.seed}|landing-plan|${tp.x.toFixed(3)}|${tp.z.toFixed(3)}`);
+    const rng = seededRng(`${scenarioRuntime.seed}|landing-plan-v2|${tp.x.toFixed(3)}|${tp.z.toFixed(3)}`);
     const pileX = Number(tuning.pileX || 0);
     const pileZ = Number(tuning.pileZ || 0);
 
-    // Select the actual chükö closest to the chosen SAKA contact point BEFORE the throw starts.
+    // Select the actual chükö closest to the SAKA contact point BEFORE the throw.
     const scored = roundPool.chukos.map((item,index)=>({
       index,
       item,
-      score: Math.hypot((item?.mesh?.position?.x||0)-tp.x,(item?.mesh?.position?.z||0)-tp.z) + rng()*0.025
+      score: Math.hypot(
+        (item?.mesh?.position?.x || 0) - tp.x,
+        (item?.mesh?.position?.z || 0) - tp.z
+      ) + rng()*0.018
     })).sort((a,b)=>a.score-b.score);
+
     const targetIds = scored.slice(0,count).map(v=>v.index);
     scenarioRuntime.targetIds = new Set(targetIds);
     scenarioRuntime.outIds = new Set();
     scenarioRuntime.khanOut = false;
     scenarioRuntime.targetsLockedAtImpact = true;
+    scenarioRuntime.targetDirections = new Map();
 
     const flightPlan = [];
-    const insideIds = [...Array(C.pile.chukoCount).keys()].filter(i=>!scenarioRuntime.targetIds.has(i));
-    const impactAngle = Math.atan2(tp.z-pileZ,tp.x-pileX);
+    const usedLandingPoints = [];
+    const insideIds = [...Array(C.pile.chukoCount).keys()]
+      .filter(i=>!scenarioRuntime.targetIds.has(i));
 
-    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.44);
-    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.82);
-    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.18);
-    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 1.30);
+    // Impact direction is the centre line of the OUT fan.
+    const impactAngle = Math.atan2(tp.z-pileZ, tp.x-pileX);
+
+    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.52);
+    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.96);
+    const insideEdgeMin = Number(C.game?.scatterInsideEdgeMetricMin || 0.88);
+    const insideEdgeMax = Number(C.game?.scatterInsideEdgeMetricMax || 0.97);
+    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.12);
+    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 1.22);
+    const minSep = Number(C.game?.scatterMinSeparationWorld || 0.56);
+    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.68);
+    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.10);
+
     const durMin = Number(C.game?.scatterDurationMinMs || 430);
     const durMax = Number(C.game?.scatterDurationMaxMs || 690);
     const delayMax = Number(C.game?.scatterDelayMaxMs || 105);
 
-    // OUT slots fan away from the impact direction; this count is exactly the scenario count.
+    // OUT points: the WHITE CHALK CIRCLE is the boundary.
+    // Place pieces clearly outside it (metric > 1), but not at the outer green edge.
+    // Angles fan widely around the actual impact direction.
     targetIds.forEach((id,order)=>{
       const item = roundPool.chukos[id];
       if (!item?.mesh) return;
-      const spread = targetIds.length <= 1 ? 0 : (order-(targetIds.length-1)/2) * 0.34;
-      const angle = impactAngle + spread + (rng()-0.5)*0.12;
-      const metric = outsideMin + (outsideMax-outsideMin)*rng();
-      const y = 0.095 + rng()*0.025;
-      const targetPosition = worldPointForWhiteMetric(angle,metric,y);
-      const distToImpact = Math.hypot(item.mesh.position.x-tp.x,item.mesh.position.z-tp.z);
+
+      const offset = outsideFanOffset(order, targetIds.length, fanStep);
+      const angle = impactAngle + offset + (rng()-0.5)*fanJitter;
+      const metric = outsideMin + (outsideMax-outsideMin)*(0.20 + 0.80*rng());
+      const y = 0.095 + rng()*0.020;
+
+      const targetPosition = chooseSeparatedWhiteMetricPoint(
+        angle, metric, y, usedLandingPoints, minSep*1.05, rng, false
+      );
+      usedLandingPoints.push(targetPosition);
+
+      const distToImpact = Math.hypot(
+        item.mesh.position.x-tp.x,
+        item.mesh.position.z-tp.z
+      );
+
       flightPlan.push({
         item,index:id,isKhan:false,targeted:true,targetPosition,
         targetRotation:deterministicLandingRotation(scenarioRuntime.seed,id,false),
-        delay:Math.min(delayMax,distToImpact*80 + rng()*28),
-        duration:durMin + (durMax-durMin)*(0.65+rng()*0.35),
-        arc:Number(C.game?.scatterArcOutsideMin||0.26) + (Number(C.game?.scatterArcOutsideMax||0.54)-Number(C.game?.scatterArcOutsideMin||0.26))*rng()
+        delay:Math.min(delayMax,distToImpact*72 + rng()*24),
+        duration:durMin + (durMax-durMin)*(0.68+rng()*0.28),
+        arc:Number(C.game?.scatterArcOutsideMin||0.26) +
+          (Number(C.game?.scatterArcOutsideMax||0.54)-Number(C.game?.scatterArcOutsideMin||0.26))*rng()
       });
+
       scenarioRuntime.targetDirections.set(id,angle);
     });
 
-    // IN slots are decided before launch too. They are distributed safely inside the white ring.
+    // IN points:
+    // spread around the whole white circle with a minimum separation.
+    // Some pieces deliberately sit close enough to the line that their body can
+    // overlap it by about 15-20%, but their centre stays inside.
     insideIds.forEach((id,order)=>{
       const item = roundPool.chukos[id];
       if (!item?.mesh) return;
+
       const n = Math.max(1,insideIds.length);
-      const base = -Math.PI + (order+0.5)*(Math.PI*2/n);
-      const angle = base + (rng()-0.5)*0.20;
-      const band = order % 3;
-      const bandT = [0.18,0.58,0.96][band];
-      const metric = insideMin + (insideMax-insideMin)*bandT + (rng()-0.5)*0.035;
-      const y = 0.090 + rng()*0.028;
-      const targetPosition = worldPointForWhiteMetric(angle,metric,y);
-      const distToImpact = Math.hypot(item.mesh.position.x-tp.x,item.mesh.position.z-tp.z);
+      const golden = 2.399963229728653; // avoids radial rows / clusters
+      const angle = impactAngle + Math.PI + order*golden + (rng()-0.5)*0.18;
+
+      let metric;
+      // Roughly every third inside piece is allowed near the white line.
+      if (order % 3 === 0) {
+        metric = insideEdgeMin + (insideEdgeMax-insideEdgeMin)*rng();
+      } else {
+        const t = (order + 0.5) / n;
+        const shaped = 0.22 + 0.70*Math.sqrt(Math.max(0,Math.min(1,t)));
+        metric = insideMin + (insideMax-insideMin)*Math.min(0.88, shaped);
+      }
+
+      const y = 0.090 + rng()*0.024;
+      const targetPosition = chooseSeparatedWhiteMetricPoint(
+        angle, metric, y, usedLandingPoints, minSep, rng, true
+      );
+      usedLandingPoints.push(targetPosition);
+
+      const distToImpact = Math.hypot(
+        item.mesh.position.x-tp.x,
+        item.mesh.position.z-tp.z
+      );
+
       flightPlan.push({
         item,index:id,isKhan:false,targeted:false,targetPosition,
         targetRotation:deterministicLandingRotation(scenarioRuntime.seed,id,false),
-        delay:Math.min(delayMax,18 + distToImpact*72 + rng()*30),
-        duration:durMin + (durMax-durMin)*(0.25+rng()*0.45),
-        arc:Number(C.game?.scatterArcInsideMin||0.12) + (Number(C.game?.scatterArcInsideMax||0.30)-Number(C.game?.scatterArcInsideMin||0.12))*rng()
+        delay:Math.min(delayMax,16 + distToImpact*64 + rng()*24),
+        duration:durMin + (durMax-durMin)*(0.30+rng()*0.42),
+        arc:Number(C.game?.scatterArcInsideMin||0.12) +
+          (Number(C.game?.scatterArcInsideMax||0.30)-Number(C.game?.scatterArcInsideMin||0.12))*rng()
       });
     });
 
-    // KHAN: normally stays close to centre; only FIVE_KHAN places it outside.
+    // KHAN: inside unless FIVE_KHAN. Keep it separated from chükö too.
     if (roundPool.khan?.mesh) {
       const targeted = !!plan.khan;
-      const angle = targeted ? impactAngle + 0.24 + (rng()-0.5)*0.12 : Math.atan2(roundPool.khan.mesh.position.z-pileZ,roundPool.khan.mesh.position.x-pileX || 0.001);
+      const angle = targeted
+        ? impactAngle + outsideFanOffset(targetIds.length, targetIds.length+1, fanStep) + (rng()-0.5)*fanJitter
+        : impactAngle + Math.PI*0.82 + (rng()-0.5)*0.34;
+
       const metric = targeted
-        ? outsideMin + (outsideMax-outsideMin)*(0.55+0.45*rng())
-        : 0.22 + rng()*0.10;
-      const targetPosition = worldPointForWhiteMetric(angle,metric,targeted?0.14:0.135);
+        ? outsideMin + (outsideMax-outsideMin)*(0.45+0.55*rng())
+        : 0.26 + rng()*0.14;
+
+      const targetPosition = chooseSeparatedWhiteMetricPoint(
+        angle, metric, targeted?0.14:0.135,
+        usedLandingPoints, targeted ? minSep*1.15 : minSep*1.20, rng, !targeted
+      );
+      usedLandingPoints.push(targetPosition);
+
       flightPlan.push({
         item:roundPool.khan,index:-1,isKhan:true,targeted,targetPosition,
         targetRotation:deterministicLandingRotation(scenarioRuntime.seed,99,true),
-        delay:targeted ? 25+rng()*40 : 55+rng()*45,
-        duration:targeted ? durMax*0.95 : durMin*0.85,
-        arc:targeted ? Number(C.game?.scatterArcOutsideMax||0.54)*0.92 : Number(C.game?.scatterArcInsideMin||0.12)*0.85
+        delay:targeted ? 25+rng()*35 : 45+rng()*38,
+        duration:targeted ? durMax*0.95 : durMin*0.88,
+        arc:targeted
+          ? Number(C.game?.scatterArcOutsideMax||0.54)*0.92
+          : Number(C.game?.scatterArcInsideMin||0.12)*0.85
       });
     }
 
@@ -1689,7 +1794,7 @@
   }
 
   function finalizeScenarioVisual() {
-    // v0.12.1: final positions were chosen BEFORE SAKA launched.
+    // v0.12.2: final positions were chosen BEFORE SAKA launched.
     // Never rearrange anything after the pieces have landed.
     freezeRoundPhysics();
   }
@@ -1715,7 +1820,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.12.1] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.2] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -1943,7 +2048,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.12.1] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.2] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
