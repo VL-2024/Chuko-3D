@@ -101,7 +101,7 @@
     scatterComplete: false,
     active: false
   };
-  // v0.12.0: dynamic round objects are created once and reused on every reset.
+  // v0.12.1: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -271,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.12.0] GLB bounds', {
+    console.info('[CHUKO 0.12.1] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -1006,7 +1006,7 @@
   }
 
   function createEnvironment() {
-    // v0.12.0: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.12.1: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1140,7 +1140,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.12.0 pooling/reset -------------------------------------------------------
+  // v0.12.1 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1491,7 +1491,7 @@
       const base = -Math.PI + (order+0.5)*(Math.PI*2/n);
       const angle = base + (rng()-0.5)*0.20;
       const band = order % 3;
-      const bandT = [0.18,0.54,0.88][band];
+      const bandT = [0.18,0.58,0.96][band];
       const metric = insideMin + (insideMax-insideMin)*bandT + (rng()-0.5)*0.035;
       const y = 0.090 + rng()*0.028;
       const targetPosition = worldPointForWhiteMetric(angle,metric,y);
@@ -1689,7 +1689,7 @@
   }
 
   function finalizeScenarioVisual() {
-    // v0.12.0: final positions were chosen BEFORE SAKA launched.
+    // v0.12.1: final positions were chosen BEFORE SAKA launched.
     // Never rearrange anything after the pieces have landed.
     freezeRoundPhysics();
   }
@@ -1715,7 +1715,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.12.0] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.1] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -1943,7 +1943,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.12.0] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.1] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2365,6 +2365,26 @@
     });
   }
 
+  function snapLandingPointToNearestChuko(point) {
+    if (!C.game?.sakaContactSnapEnabled || !roundPool.initialized || !point) return point;
+
+    let best = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    roundPool.chukos.forEach((item, index) => {
+      if (!item?.mesh) return;
+      const d = Math.hypot(item.mesh.position.x - point.x, item.mesh.position.z - point.z);
+      if (d < bestDist) { bestDist = d; best = { item, index }; }
+    });
+
+    if (!best) return point;
+    const maxDist = Number(C.game?.sakaContactSnapMaxDistance || 0.95);
+    if (bestDist > maxDist) return point;
+
+    // Aim the SAKA centre directly over the closest real chükö.
+    // This guarantees visible contact before the deterministic scatter begins.
+    return { x: best.item.mesh.position.x, z: best.item.mesh.position.z };
+  }
+
   function throwSaka(options = {}) {
     if (thrown || !saka || !sakaAggregate || gameState.phase !== 'ready' || !gameState.ticketReady) return;
     thrown = true;
@@ -2420,6 +2440,10 @@
         landingPoint = {x:geo.center.x + dx*inv*contactRadius, z:geo.center.z + dz*inv*contactRadius};
       }
     }
+
+    // Guarantee that SAKA's ballistic contact point coincides with at least one
+    // actual chükö position. This avoids visually dropping into an empty gap.
+    landingPoint = snapLandingPointToNearestChuko(landingPoint);
 
     // Scenario result is planned BEFORE SAKA starts flying: exact final landing
     // points for all 12 chükö and KHAN are fixed now and will not change later.

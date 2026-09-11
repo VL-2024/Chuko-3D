@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.12.0',
+  version: '0.12.1',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -157,10 +157,10 @@ window.CHUKO3D_CONFIG = Object.freeze({
     scenarioSettleInsideMetric: 0.92,
     scenarioSettleOutsideMetric: 1.10,
     deterministicScatter: true,
-    scatterInsideMetricMin: 0.44,
-    scatterInsideMetricMax: 0.82,
-    scatterOutsideMetricMin: 1.18,
-    scatterOutsideMetricMax: 1.30,
+    scatterInsideMetricMin: 0.46,
+    scatterInsideMetricMax: 0.98,
+    scatterOutsideMetricMin: 1.38,
+    scatterOutsideMetricMax: 1.52,
     scatterDurationMinMs: 430,
     scatterDurationMaxMs: 690,
     scatterDelayMaxMs: 105,
@@ -168,6 +168,8 @@ window.CHUKO3D_CONFIG = Object.freeze({
     scatterArcInsideMax: 0.30,
     scatterArcOutsideMin: 0.26,
     scatterArcOutsideMax: 0.54,
+    sakaContactSnapEnabled: true,
+    sakaContactSnapMaxDistance: 0.95,
     scenarioInsideHardMetric: 0.90,
     scenarioOutMarkMetric: 1.12,
     scenarioOutFinalMetric: 1.18,
