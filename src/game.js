@@ -2,6 +2,9 @@
   'use strict';
 
   const C = window.CHUKO3D_CONFIG;
+  const LMS = window.X2LMS;
+  const ScenarioCfg = window.X2ChukoScenarioConfig;
+  const LMS_CFG = window.X2_GAME_CONFIG || {};
   const ui = {
     canvas: document.getElementById('renderCanvas'),
     throwBtn: document.getElementById('throwBtn'),
@@ -24,6 +27,7 @@
     demoModeBtn: document.getElementById('demoModeBtn'),
     realModeBtn: document.getElementById('realModeBtn'),
     ticketNo: document.getElementById('ticketNo'),
+    balanceValue: document.getElementById('balanceValue'),
     resultCard: document.getElementById('resultCard'),
     resultMain: document.getElementById('resultMain'),
     resultSub: document.getElementById('resultSub')
@@ -63,12 +67,33 @@
   let throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
   let roundSeed = 1;
   const gameState = {
+    phase: 'loading',
     mode: 'demo',
     denomination: Number(C.game?.defaultDenomination || 25),
-    ticketNo: Number(C.game?.demoTicketStart || 100001),
-    resultShown: false
+    denominations: [...(C.game?.denominations || [25,50,100])],
+    currency: 'KGS',
+    currencyDisplay: 'сом',
+    language: 'RU',
+    demoAllowed: true,
+    balance: 0,
+    demoBalance: Number(LMS_CFG.demoBalance || 10000),
+    realBalance: null,
+    pendingBalance: null,
+    ticket: null,
+    ticketReady: false,
+    resultShown: false,
+    busy: false
   };
-  // v0.10.3: dynamic round objects are created once and reused on every reset.
+  const scenarioRuntime = {
+    plan: null,
+    targetIds: new Set(),
+    targetDirections: new Map(),
+    khanTarget: false,
+    seed: '',
+    impactAt: 0,
+    active: false
+  };
+  // v0.11.0: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -230,7 +255,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.10.3] GLB bounds', {
+    console.info('[CHUKO 0.11.0] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -965,7 +990,7 @@
   }
 
   function createEnvironment() {
-    // v0.10.3: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.11.0: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1099,7 +1124,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.10.3 pooling/reset -------------------------------------------------------
+  // v0.11.0 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1214,64 +1239,361 @@
     ];
   }
 
+  function hashString(str) {
+    let h = 2166136261 >>> 0;
+    for (let i=0;i<String(str).length;i++) {
+      h ^= String(str).charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function seededRng(seed) {
+    let a = hashString(seed) || 1;
+    return () => {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function shuffled(values, rng) {
+    const a = [...values];
+    for (let i=a.length-1;i>0;i--) {
+      const j = Math.floor(rng()*(i+1));
+      [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a;
+  }
+
+  function scenarioPlan(value) {
+    const item = ScenarioCfg?.getOrDefault(value);
+    if (!item) return {regular:0,khan:false,key:'ZERO',id:1};
+    return {regular:Number(item.regular||0), khan:Boolean(item.khan), key:item.key, id:item.id};
+  }
+
+  function prepareScenarioRuntime(ticket) {
+    const plan = scenarioPlan(ticket?.scenario);
+    const seed = `${ticket?.ticketId || 'ROUND'}|${plan.id}|${plan.key}`;
+    const rng = seededRng(seed);
+    const ids = shuffled([...Array(C.pile.chukoCount).keys()], rng).slice(0, Math.max(0, Math.min(C.pile.chukoCount, plan.regular)));
+    const directions = new Map();
+    ids.forEach((id, order) => {
+      const base = -Math.PI * 0.92 + ((order + 1) / (ids.length + 1)) * Math.PI * 1.84;
+      const jitter = (rng() - 0.5) * 0.38;
+      directions.set(id, base + jitter);
+    });
+    scenarioRuntime.plan = plan;
+    scenarioRuntime.targetIds = new Set(ids);
+    scenarioRuntime.targetDirections = directions;
+    scenarioRuntime.khanTarget = plan.khan;
+    scenarioRuntime.seed = seed;
+    scenarioRuntime.impactAt = 0;
+    scenarioRuntime.active = true;
+  }
+
+  function clearScenarioRuntime() {
+    scenarioRuntime.plan = null;
+    scenarioRuntime.targetIds = new Set();
+    scenarioRuntime.targetDirections = new Map();
+    scenarioRuntime.khanTarget = false;
+    scenarioRuntime.seed = '';
+    scenarioRuntime.impactAt = 0;
+    scenarioRuntime.active = false;
+  }
+
+  function formatMoney(value) {
+    const n = Number(value || 0);
+    return `${Number.isInteger(n) ? n : n.toFixed(2)} ${gameState.currencyDisplay || gameState.currency}`;
+  }
+
+  function currentTicketLabel() {
+    return gameState.ticket?.ticketId ? `#${gameState.ticket.ticketId}` : '—';
+  }
+
+  function renderDenominationButtons() {
+    const bar = document.querySelector('.denom-bar');
+    if (!bar) return;
+    const unit = bar.querySelector('em');
+    bar.querySelectorAll('[data-denom]').forEach(node => node.remove());
+    const values = [...new Set((gameState.denominations || []).map(Number).filter(v=>Number.isFinite(v)&&v>0))];
+    values.forEach(value => {
+      const b = document.createElement('button');
+      b.className = 'denom';
+      b.type = 'button';
+      b.dataset.denom = String(value);
+      b.textContent = String(value);
+      b.addEventListener('click', () => {
+        if (!['idle','settled'].includes(gameState.phase) || gameState.busy) return;
+        gameState.denomination = value;
+        gameState.ticket = null;
+        gameState.ticketReady = false;
+        hideGameResult();
+        updateGameHud();
+        LMS?.emit?.('X2_GAME_DENOMINATION_CHANGED', {gameId:LMS_CFG.gameId || 'CHUKO', denomination:value, currency:gameState.currency, mode:gameState.mode});
+      });
+      bar.insertBefore(b, unit);
+    });
+  }
+
+  function renderGameControls() {
+    const phase = gameState.phase;
+    const canConfigure = ['idle','settled'].includes(phase) && !gameState.busy;
+    document.querySelectorAll('[data-denom]').forEach(btn => btn.disabled = !canConfigure);
+    if (ui.demoModeBtn) ui.demoModeBtn.disabled = !canConfigure || !gameState.demoAllowed;
+    if (ui.realModeBtn) ui.realModeBtn.disabled = !canConfigure;
+    if (ui.throwBtn) {
+      ui.throwBtn.disabled = phase !== 'ready' || !gameState.ticketReady;
+      ui.throwBtn.textContent = phase === 'throwing' ? 'САКА В ПОЛЁТЕ…' : 'БРОСИТЬ САКА';
+    }
+    if (ui.resetBtn) {
+      ui.resetBtn.disabled = !canConfigure;
+      ui.resetBtn.textContent = gameState.busy ? 'ЗАГРУЗКА…' : 'НОВАЯ ИГРА';
+    }
+  }
+
   function updateGameHud() {
-    if (ui.ticketNo) ui.ticketNo.textContent = `#${gameState.ticketNo}`;
+    if (ui.ticketNo) ui.ticketNo.textContent = currentTicketLabel();
+    if (ui.balanceValue) ui.balanceValue.textContent = formatMoney(gameState.balance);
     document.querySelectorAll('[data-denom]').forEach(btn => {
       btn.classList.toggle('active', Number(btn.dataset.denom) === gameState.denomination);
     });
+    ui.demoModeBtn?.classList.toggle('active', gameState.mode === 'demo');
+    ui.realModeBtn?.classList.toggle('active', gameState.mode === 'real');
+    renderGameControls();
   }
 
   function hideGameResult() {
     gameState.resultShown = false;
-    if (ui.resultCard) ui.resultCard.hidden = true;
+    if (ui.resultCard) {
+      ui.resultCard.hidden = true;
+      ui.resultCard.classList.remove('win');
+    }
   }
 
   function computePhysicalResult() {
-    // Count against the WHITE PLAYING CIRCLE seen on field-realistic.webp,
-    // not against the outer carpet/physics arena.
-    // The previous 3.14 radius was larger than the scatter containment radius,
-    // which made "0" possible even when pieces were visibly outside the white circle.
     const radius = Number(C.game?.resultRadius || 2.22);
-
-    const isOutsidePlayingCircle = (item) => {
-      if (!item?.mesh) return false;
-      return Math.hypot(item.mesh.position.x, item.mesh.position.z) > radius;
+    const isOutside = item => !!item?.mesh && Math.hypot(item.mesh.position.x, item.mesh.position.z) > radius;
+    return {
+      out: roundPool.chukos.filter(isOutside).length,
+      khanOut: !!roundPool.khan && isOutside(roundPool.khan)
     };
+  }
 
-    const out = roundPool.chukos.filter(isOutsidePlayingCircle).length;
-    const khanOut = !!roundPool.khan && isOutsidePlayingCircle(roundPool.khan);
-    return { out, khanOut };
+  function setFinalPiecePosition(item, radius, angle, keepDynamic=false) {
+    if (!item?.mesh || !item?.aggregate?.body) return;
+    const body = item.aggregate.body;
+    const mesh = item.mesh;
+    const rot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
+    try {
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+      body.setLinearVelocity(BABYLON.Vector3.Zero());
+      body.setAngularVelocity(BABYLON.Vector3.Zero());
+      body.disablePreStep = false;
+      mesh.position.set(Math.cos(angle)*radius, Math.max(0.10, Math.min(mesh.position.y,0.34)), Math.sin(angle)*radius);
+      mesh.rotationQuaternion = rot;
+      mesh.computeWorldMatrix(true);
+      if (keepDynamic) {
+        scene.onAfterRenderObservable.addOnce(()=>{
+          try { body.disablePreStep=true; body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC); } catch (_) {}
+        });
+      }
+    } catch (_) {}
+  }
+
+  function finalizeScenarioVisual() {
+    if (!scenarioRuntime.active || !scenarioRuntime.plan) return;
+    const outRadius = Number(C.game?.scenarioOutRadius || 2.42);
+    const inRadius = Number(C.game?.scenarioInRadius || 2.04);
+    const resultRadius = Number(C.game?.resultRadius || 2.22);
+    const rng = seededRng(`${scenarioRuntime.seed}|final`);
+
+    roundPool.chukos.forEach((item, index) => {
+      const targeted = scenarioRuntime.targetIds.has(index);
+      const r = Math.hypot(item.mesh.position.x, item.mesh.position.z);
+      if (targeted) {
+        if (r <= resultRadius + 0.04) {
+          const angle = scenarioRuntime.targetDirections.get(index) ?? (-Math.PI + rng()*Math.PI*2);
+          setFinalPiecePosition(item, outRadius + rng()*0.10, angle);
+        }
+      } else if (r > resultRadius - 0.04) {
+        const angle = Math.atan2(item.mesh.position.z, item.mesh.position.x);
+        setFinalPiecePosition(item, inRadius - rng()*0.06, angle);
+      }
+    });
+
+    if (roundPool.khan?.mesh) {
+      const r = Math.hypot(roundPool.khan.mesh.position.x, roundPool.khan.mesh.position.z);
+      if (scenarioRuntime.khanTarget) {
+        if (r <= resultRadius + 0.04) setFinalPiecePosition(roundPool.khan, outRadius + 0.12, -0.78);
+      } else if (r > resultRadius - 0.04) {
+        setFinalPiecePosition(roundPool.khan, inRadius - 0.05, Math.atan2(roundPool.khan.mesh.position.z, roundPool.khan.mesh.position.x));
+      }
+    }
+    syncAllGlbVisuals();
   }
 
   function showGameResult() {
-    if (!roundPool.initialized || gameState.resultShown) return;
-    const result = computePhysicalResult();
+    if (!roundPool.initialized || gameState.resultShown || !gameState.ticket) return;
+    finalizeScenarioVisual();
+    const physical = computePhysicalResult();
+    const plan = scenarioRuntime.plan || scenarioPlan(gameState.ticket.scenario);
     gameState.resultShown = true;
-    if (ui.resultMain) ui.resultMain.textContent = `Выбито: ${result.out}`;
-    if (ui.resultSub) ui.resultSub.textContent = result.khanOut ? 'ХАН выбит' : 'ХАН остался в круге';
-    if (ui.resultCard) ui.resultCard.hidden = false;
+
+    if (gameState.pendingBalance != null && Number.isFinite(gameState.pendingBalance)) {
+      gameState.balance = Number(gameState.pendingBalance);
+      if (gameState.mode === 'demo') gameState.demoBalance = gameState.balance;
+      else gameState.realBalance = gameState.balance;
+    }
+
+    if (ui.resultMain) ui.resultMain.textContent = plan.khan ? `Выбито: ${plan.regular} + ХАН` : `Выбито: ${plan.regular}`;
+    if (ui.resultSub) ui.resultSub.textContent = `Выигрыш: ${formatMoney(gameState.ticket.win || 0)} · ${plan.key}`;
+    if (ui.resultCard) {
+      ui.resultCard.hidden = false;
+      ui.resultCard.classList.toggle('win', Number(gameState.ticket.win || 0) > 0);
+    }
+
+    if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
+      console.warn('[CHUKO 0.11.0] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+    }
+
+    gameState.phase = 'settled';
+    gameState.ticketReady = false;
+    gameState.busy = false;
+    updateGameHud();
+    LMS?.emit?.('X2_GAME_ROUND_COMPLETE', {
+      gameId:LMS_CFG.gameId || 'CHUKO',
+      ticketId:gameState.ticket.ticketId,
+      scenario:gameState.ticket.scenario,
+      scenarioKey:plan.key,
+      win:Number(gameState.ticket.win || 0),
+      balance:gameState.balance,
+      denomination:gameState.denomination,
+      currency:gameState.currency,
+      currencyDisplay:gameState.currencyDisplay,
+      language:gameState.language,
+      mode:gameState.mode
+    });
   }
 
-  function startNewGameTicket() {
-    gameState.ticketNo += 1;
-    hideGameResult();
+  async function refreshBalance() {
+    try {
+      if (gameState.mode === 'demo') {
+        gameState.balance = Number(gameState.demoBalance);
+      } else {
+        const data = await LMS.getBalance({currency:gameState.currency});
+        gameState.realBalance = Number(data.balance);
+        gameState.balance = gameState.realBalance;
+        if (data.currency) gameState.currency = String(data.currency).toUpperCase();
+        if (data.currencyDisplay) gameState.currencyDisplay = String(data.currencyDisplay);
+      }
+      LMS?.emit?.('X2_GAME_BALANCE_LOADED', {gameId:LMS_CFG.gameId || 'CHUKO', balance:gameState.balance, currency:gameState.currency, currencyDisplay:gameState.currencyDisplay, mode:gameState.mode});
+    } catch (err) {
+      console.error(err);
+      gameState.phase = 'error';
+      ui.hint.textContent = 'Не удалось загрузить баланс';
+      LMS?.emit?.('X2_GAME_ERROR',{stage:'balance',code:err.code||'BALANCE_ERROR',message:err.message||String(err)});
+    }
     updateGameHud();
+  }
+
+  async function requestNewGame() {
+    if (!['idle','settled'].includes(gameState.phase) || gameState.busy) return;
+    hideGameResult();
+    gameState.busy = true;
+    gameState.phase = 'requesting';
+    gameState.ticketReady = false;
+    gameState.ticket = null;
+    clearScenarioRuntime();
+    ui.hint.textContent = 'Получаем билет…';
+    updateGameHud();
+    try {
+      const request = {
+        gameId:LMS_CFG.gameId || 'CHUKO',
+        denomination:gameState.denomination,
+        currency:gameState.currency,
+        currencyDisplay:gameState.currencyDisplay,
+        language:gameState.language,
+        demoBalance:gameState.demoBalance
+      };
+      const data = gameState.mode === 'demo'
+        ? await LMS.createDemoTicket(request)
+        : await LMS.createTicket(request);
+      gameState.ticket = data;
+      gameState.pendingBalance = Number(data.balance);
+      gameState.denomination = Number(data.denomination ?? gameState.denomination);
+      if (data.currency) gameState.currency = String(data.currency).toUpperCase();
+      if (data.currencyDisplay) gameState.currencyDisplay = String(data.currencyDisplay);
+      prepareScenarioRuntime(data);
+      gameState.phase = 'ready';
+      gameState.ticketReady = true;
+      gameState.busy = false;
+      resetRound();
+      updateGameHud();
+      LMS?.emit?.('X2_GAME_TICKET_READY', {
+        gameId:LMS_CFG.gameId || 'CHUKO', ticketId:data.ticketId, scenario:data.scenario, scenarioKey:data.scenarioKey,
+        denomination:gameState.denomination, currency:gameState.currency, currencyDisplay:gameState.currencyDisplay,
+        language:gameState.language, mode:gameState.mode
+      });
+    } catch (err) {
+      console.error(err);
+      gameState.phase = 'idle';
+      gameState.busy = false;
+      gameState.ticketReady = false;
+      gameState.ticket = null;
+      const code = err.code || 'GAME_START_ERROR';
+      ui.hint.textContent = code === 'INSUFFICIENT_FUNDS' ? 'Недостаточно средств' : 'Не удалось получить билет';
+      updateGameHud();
+      LMS?.emit?.('X2_GAME_ERROR',{stage:'newGame',code,message:err.message||String(err)});
+    }
+  }
+
+  async function setGameMode(mode) {
+    if (!['idle','settled'].includes(gameState.phase) || gameState.busy) return;
+    const next = mode === 'real' ? 'real' : 'demo';
+    if (next === 'demo' && !gameState.demoAllowed) return;
+    if (next === gameState.mode) return;
+    gameState.mode = next;
+    gameState.ticket = null;
+    gameState.ticketReady = false;
+    gameState.pendingBalance = null;
+    clearScenarioRuntime();
+    hideGameResult();
     resetRound();
+    LMS?.emit?.('X2_GAME_MODE_CHANGED',{gameId:LMS_CFG.gameId || 'CHUKO',mode:gameState.mode,currency:gameState.currency,language:gameState.language,denomination:gameState.denomination});
+    await refreshBalance();
+    gameState.phase = 'idle';
+    updateGameHud();
   }
 
   function bindGameUi() {
-    document.querySelectorAll('[data-denom]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (thrown) return;
-        gameState.denomination = Number(btn.dataset.denom) || 25;
-        updateGameHud();
-      });
-    });
-    ui.demoModeBtn?.addEventListener('click', () => {
-      gameState.mode = 'demo';
-      ui.demoModeBtn.classList.add('active');
-    });
+    ui.demoModeBtn?.addEventListener('click',()=>setGameMode('demo'));
+    ui.realModeBtn?.addEventListener('click',()=>setGameMode('real'));
+    renderDenominationButtons();
     updateGameHud();
+  }
+
+  async function initializeGameIntegration() {
+    if (!LMS || !ScenarioCfg) throw new Error('LMS/scenario modules are not loaded');
+    const settings = await LMS.getGameSettings();
+    gameState.denominations = Array.isArray(settings.denominations) && settings.denominations.length
+      ? settings.denominations.map(Number).filter(v=>Number.isFinite(v)&&v>0)
+      : [25,50,100];
+    const preferred = Number(settings.denomination ?? gameState.denomination);
+    gameState.denomination = gameState.denominations.includes(preferred) ? preferred : gameState.denominations[0];
+    gameState.currency = String(settings.currency || 'KGS').toUpperCase();
+    gameState.currencyDisplay = String(settings.currencyDisplay || settings.currency || 'сом');
+    gameState.language = String(settings.language || 'RU').toUpperCase();
+    gameState.mode = String(settings.mode || 'demo').toLowerCase() === 'real' ? 'real' : 'demo';
+    gameState.demoAllowed = settings.demoAllowed !== false;
+    gameState.demoBalance = Number(settings.demoBalance ?? LMS_CFG.demoBalance ?? 10000);
+    gameState.phase = 'idle';
+    renderDenominationButtons();
+    await refreshBalance();
+    resetRound();
+    updateGameHud();
+    ui.hint.textContent = 'Выберите номинал и нажмите «Новая игра»';
   }
 
   function resetRound() {
@@ -1288,7 +1610,9 @@
     ui.throwBtn.disabled = false;
     ui.throwBtn.textContent = 'БРОСИТЬ САКА';
     hideGameResult();
-    ui.hint.textContent = `Билет #${gameState.ticketNo} · ${gameState.denomination} сом · потяните САКА`;
+    ui.hint.textContent = gameState.ticketReady && gameState.ticket
+      ? `Билет #${gameState.ticket.ticketId} · ${gameState.denomination} ${gameState.currencyDisplay} · потяните САКА`
+      : 'Выберите номинал и нажмите «Новая игра»';
     ui.hint.style.opacity = '1';
     resetAimState();
     hideAimVisuals();
@@ -1354,7 +1678,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.10.3] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.11.0] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -1710,7 +2034,7 @@
 
   function bindAimControls() {
     ui.canvas.addEventListener('pointerdown', (e) => {
-      if (thrown || !saka) return;
+      if (thrown || !saka || gameState.phase !== 'ready' || !gameState.ticketReady) return;
       const p = canvasPointer(e);
       aimState.tapCandidate = true;
       aimState.downX = e.clientX;
@@ -1732,7 +2056,7 @@
       if (Math.hypot(e.clientX - aimState.downX, e.clientY - aimState.downY) > C.throw.tapThresholdPx) {
         aimState.tapCandidate = false;
       }
-      if (!aimState.dragging || aimState.pointerId !== e.pointerId || thrown) return;
+      if (!aimState.dragging || aimState.pointerId !== e.pointerId || thrown || gameState.phase !== 'ready') return;
       updateDragAim(e);
       e.preventDefault();
     });
@@ -1752,7 +2076,7 @@
         return;
       }
 
-      if (aimState.tapCandidate && !thrown) {
+      if (aimState.tapCandidate && !thrown && gameState.phase === 'ready' && gameState.ticketReady) {
         const p = canvasPointer(e);
         aimState.tapCandidate = false;
         if (p.y < p.height * 0.82) throwSaka();
@@ -1770,15 +2094,17 @@
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
-        ui.hint.textContent = `Билет #${gameState.ticketNo} · ${gameState.denomination} сом · потяните САКА`;
+        ui.hint.textContent = gameState.ticket ? `Билет #${gameState.ticket.ticketId} · ${gameState.denomination} ${gameState.currencyDisplay} · потяните САКА` : 'Нажмите «Новая игра»';
       }
       aimState.tapCandidate = false;
     });
   }
 
   function throwSaka(options = {}) {
-    if (thrown || !saka || !sakaAggregate) return;
+    if (thrown || !saka || !sakaAggregate || gameState.phase !== 'ready' || !gameState.ticketReady) return;
     thrown = true;
+    gameState.phase = 'throwing';
+    updateGameHud();
     ui.throwBtn.disabled = true;
     ui.throwBtn.textContent = 'САКА В ПОЛЁТЕ…';
     if (ui.aimPower) ui.aimPower.hidden = true;
@@ -1817,6 +2143,19 @@
       landingPoint = actual.point;
     }
 
+    // Manual aim must still land inside the dense pile contact zone.
+    {
+      const geo = aimGeometry();
+      const contactRadius = geo.radius * Math.max(0.30, Math.min(0.95, Number(C.throw.contactRadiusFactor || 0.50)));
+      const dx = landingPoint.x - geo.center.x;
+      const dz = landingPoint.z - geo.center.z;
+      const r = Math.hypot(dx,dz);
+      if (r > contactRadius) {
+        const inv = 1 / Math.max(1e-6,r);
+        landingPoint = {x:geo.center.x + dx*inv*contactRadius, z:geo.center.z + dz*inv*contactRadius};
+      }
+    }
+
     const target = new BABYLON.Vector3(landingPoint.x, ballisticTargetYForAim(), landingPoint.z);
     const s0 = throwStartPoint();
     const start = new BABYLON.Vector3(s0.x, s0.y, s0.z);
@@ -1850,8 +2189,6 @@
     ));
 
     resetTimer = window.setTimeout(() => {
-      ui.throwBtn.disabled = false;
-      ui.throwBtn.textContent = 'НОВАЯ ИГРА';
       throwState.active = false;
       showGameResult();
       ui.hint.textContent = 'Результат зафиксирован · нажмите «Новая игра»';
@@ -1904,6 +2241,7 @@
     // The pile is now dynamic at the real moment of impact, so apply a controlled
     // boost immediately in the same render frame.
     throwState.impactBoosted = true;
+    if (scenarioRuntime.active && !scenarioRuntime.impactAt) scenarioRuntime.impactAt = performance.now();
     triggerImpactFx(tp, throwState.power || 0.6);
     if (aimTarget) aimTarget.setEnabled(false);
     const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
@@ -1928,10 +2266,15 @@
       const factor = item.role === 'khan' ? Number(cfg.khanFactor || 0.92) : 1;
       const current = readLinearVelocity(item.aggregate.body);
 
+      const chukoIndex = item.role === 'chuko' ? roundPool.chukos.indexOf(item) : -1;
+      const scenarioTarget = item.role === 'khan'
+        ? scenarioRuntime.khanTarget
+        : scenarioRuntime.targetIds.has(chukoIndex);
+      const scenarioFactor = scenarioRuntime.active ? (scenarioTarget ? 1.72 : 0.72) : 1.0;
       const added = new BABYLON.Vector3(
-        (radial.x * radialSpeed + forward.x * forwardSpeed + sideX * randomSpeed) * falloff * factor,
-        liftSpeed * (0.55 + 0.45 * falloff) * factor,
-        (radial.z * radialSpeed + forward.z * forwardSpeed + sideZ * randomSpeed) * falloff * factor
+        (radial.x * radialSpeed + forward.x * forwardSpeed + sideX * randomSpeed) * falloff * factor * scenarioFactor,
+        liftSpeed * (0.55 + 0.45 * falloff) * factor * (scenarioTarget ? 1.10 : 0.78),
+        (radial.z * radialSpeed + forward.z * forwardSpeed + sideZ * randomSpeed) * falloff * factor * scenarioFactor
       );
       item.aggregate.body.setLinearVelocity(current.add(added));
 
@@ -2122,6 +2465,55 @@
     }
   }
 
+  function enforceScenarioDuringScatter() {
+    if (!scenarioRuntime.active || !scenarioRuntime.plan || !thrown || !throwState.impactBoosted) return;
+    const resultRadius = Number(C.game?.resultRadius || 2.22);
+    const innerLimit = Number(C.game?.scenarioInRadius || 2.04);
+    const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
+
+    roundPool.chukos.forEach((item,index)=>{
+      if (!item?.mesh || !item?.aggregate?.body) return;
+      const targeted = scenarioRuntime.targetIds.has(index);
+      const r = Math.hypot(item.mesh.position.x,item.mesh.position.z);
+      if (!targeted) {
+        if (r > resultRadius - 0.02) {
+          const inv=1/Math.max(1e-6,r); clampChukoInsideView(item,item.mesh.position.x*inv,item.mesh.position.z*inv,innerLimit);
+        }
+        return;
+      }
+      if (elapsed < 260 || r >= resultRadius + 0.10) return;
+      const body=item.aggregate.body;
+      const angle=scenarioRuntime.targetDirections.get(index) ?? Math.atan2(item.mesh.position.z,item.mesh.position.x);
+      const dx=Math.cos(angle), dz=Math.sin(angle);
+      const vel=readLinearVelocity(body);
+      const outward=vel.x*dx+vel.z*dz;
+      const desired=elapsed>900?2.55:1.90;
+      if (outward < desired) {
+        body.setLinearVelocity(new BABYLON.Vector3(
+          vel.x + dx*(desired-outward)*0.34,
+          Math.min(0.34,vel.y+0.05),
+          vel.z + dz*(desired-outward)*0.34
+        ));
+      }
+    });
+
+    const khan=roundPool.khan;
+    if (khan?.mesh && khan?.aggregate?.body) {
+      const r=Math.hypot(khan.mesh.position.x,khan.mesh.position.z);
+      if (!scenarioRuntime.khanTarget) {
+        if (r > resultRadius - 0.02) {
+          const inv=1/Math.max(1e-6,r); clampChukoInsideView(khan,khan.mesh.position.x*inv,khan.mesh.position.z*inv,innerLimit-0.04);
+        }
+      } else if (elapsed > 300 && r < resultRadius + 0.10) {
+        const body=khan.aggregate.body, vel=readLinearVelocity(body);
+        const dx=0.72, dz=-0.69;
+        const outward=vel.x*dx+vel.z*dz;
+        const desired=elapsed>900?2.7:2.0;
+        if (outward<desired) body.setLinearVelocity(new BABYLON.Vector3(vel.x+dx*(desired-outward)*0.36,Math.min(0.32,vel.y+0.05),vel.z+dz*(desired-outward)*0.36));
+      }
+    }
+  }
+
   function updatePerf() {
     const fps = engine.getFps();
     const frame = 1000 / Math.max(1, fps);
@@ -2169,6 +2561,7 @@
     applyCameraTuning();
     applyPilePieceScale();
     resetRound();
+    await initializeGameIntegration();
 
     scene.onBeforeRenderObservable.add(() => {
       syncAllGlbVisuals();
@@ -2178,6 +2571,7 @@
       releasePileIfImpactIsImminent();
       applyImpactBoostIfNeeded();
       containScatterInView();
+      enforceScenarioDuringScatter();
       containSakaInsidePlayCircle();
       if (saka && saka.position.y < -2.5) {
         throwState.active = false;
@@ -2197,10 +2591,9 @@
 
     window.addEventListener('resize', () => engine.resize(), { passive: true });
     ui.throwBtn.addEventListener('click', () => {
-      if (!thrown) throwSaka();
-      else startNewGameTicket();
+      if (gameState.phase === 'ready' && gameState.ticketReady && !thrown) throwSaka();
     });
-    ui.resetBtn.addEventListener('click', startNewGameTicket);
+    ui.resetBtn.addEventListener('click', requestNewGame);
     bindAimControls();
 
     updatePerf();

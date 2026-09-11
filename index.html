@@ -8,8 +8,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · game loop 0.10.3</title>
-  <link rel="stylesheet" href="styles.css?v=0.10.3" />
+  <title>ЧҮКӨ Modern 3D · LMS/scenarios 0.11.0</title>
+  <link rel="stylesheet" href="styles.css?v=0.11.0" />
 </head>
 <body>
   <main id="app">
@@ -24,7 +24,7 @@
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
 
     <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.10.3 · GAME</em></div>
+      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.11.0 · LMS</em></div>
       <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
     </header>
 
@@ -32,9 +32,10 @@
     <section class="game-bar" aria-label="Игровая информация">
       <div class="mode-switch" role="group" aria-label="Режим игры">
         <button id="demoModeBtn" class="mode active" type="button">DEMO</button>
-        <button id="realModeBtn" class="mode" type="button" disabled title="LMS подключим позже">REAL</button>
+        <button id="realModeBtn" class="mode" type="button">REAL</button>
       </div>
-      <div class="ticket-box"><span>БИЛЕТ</span><strong id="ticketNo">#100001</strong></div>
+      <div class="ticket-box"><span>БИЛЕТ</span><strong id="ticketNo">—</strong></div>
+      <div class="balance-box"><span>БАЛАНС</span><strong id="balanceValue">—</strong></div>
     </section>
 
     <section class="denom-bar" aria-label="Номинал билета">
@@ -194,7 +195,7 @@
       </section>
 
       <div class="tune-actions">
-        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.10.3</button>
+        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.11.0</button>
         <button id="tuneCopyBtn" type="button">КОПИРОВАТЬ ПАРАМЕТРЫ</button>
       </div>
       <textarea id="tuneOutput" class="tune-output" readonly rows="5" aria-label="Текущие параметры"></textarea>
@@ -203,7 +204,7 @@
     <footer class="controls bottom-safe">
       <button id="throwBtn" class="primary">БРОСИТЬ САКА</button>
       <button id="resetBtn" class="secondary">НОВАЯ ИГРА</button>
-      <div class="microcopy">Demo: результат считается по фактическому разлёту · LMS пока отключён</div>
+      <div class="microcopy">LMS adapter · сервер/DEMO задаёт сценарий, 3D его визуализирует</div>
     </footer>
 
     <div class="fatal" id="fatal" hidden>
@@ -215,7 +216,10 @@
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.25.0/babylonjs.loaders.min.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.10.3"></script>
-  <script src="src/game.js?v=0.10.3"></script>
+  <script src="src/config.js?v=0.11.0"></script>
+  <script src="lms-config.js?v=0.11.0"></script>
+  <script src="src/scenario-config.js?v=0.11.0"></script>
+  <script src="lms-adapter.js?v=0.11.0"></script>
+  <script src="src/game.js?v=0.11.0"></script>
 </body>
 </html>
