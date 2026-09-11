@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.12.4',
+  version: '0.12.5',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -144,6 +144,8 @@ window.CHUKO3D_CONFIG = Object.freeze({
     scenarioNonTargetHardRadius: 2.08,
     scenarioMarkOutRadius: 2.48,
     scenarioOutRadius: 2.58,
+    scenarioOutRadiusMin: 2.54,
+    scenarioOutRadiusMax: 2.82,
     scenarioPushStartMs: 30,
     scenarioForceMs: 420,
     scenarioFreezeMs: 950,
@@ -175,9 +177,9 @@ window.CHUKO3D_CONFIG = Object.freeze({
     scatterArcOutsideMax: 0.54,
     sakaContactSnapEnabled: true,
     sakaContactSnapMaxDistance: 1.20,
-    sakaDeterministicContactTriggerY: 0.43,
-    sakaDeterministicContactRadius: 0.14,
-    sakaAimSnapLive: true,
+    sakaDeterministicContactTriggerY: 0.34,
+    sakaDeterministicContactRadius: 0.08,
+    sakaAimSnapLive: false,
     scenarioInsideHardMetric: 0.90,
     scenarioOutMarkMetric: 1.12,
     scenarioOutFinalMetric: 1.18,

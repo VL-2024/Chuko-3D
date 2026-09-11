@@ -271,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.12.3] GLB bounds', {
+    console.info('[CHUKO 0.12.5] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -1458,6 +1458,47 @@
     return best || worldPointForWhiteMetric(angle, metric, y);
   }
 
+  function worldPointForRadius(angle, radius, y=0.11) {
+    return new BABYLON.Vector3(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+  }
+
+  function chooseSeparatedRadiusPoint(angle, radius, y, usedPoints, minSep, rng, angleJitter=0.16, radiusJitter=0.08) {
+    let best = null;
+    let bestSep = -1;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const a = angle + (rng() - 0.5) * angleJitter;
+      const r = Math.max(0.08, radius + (rng() - 0.5) * radiusJitter);
+      const p = worldPointForRadius(a, r, y);
+      const sep = usedPoints.length ? Math.min(...usedPoints.map(other => pointDistanceXZ(p, other))) : 999;
+      if (sep > bestSep) {
+        best = p;
+        bestSep = sep;
+      }
+      if (sep >= minSep) return p;
+    }
+    return best || worldPointForRadius(angle, radius, y);
+  }
+
+  function keepWorldRadiusPointInsideScreen(point, fallbackAngle, requestedRadius, y, rng, minRadius = 2.28) {
+    if (!point || !ui.canvas) return point;
+    const rect = ui.canvas.getBoundingClientRect();
+    const safe = {
+      left: rect.left + rect.width * 0.045,
+      right: rect.right - rect.width * 0.045,
+      top: rect.top + rect.height * 0.060,
+      bottom: rect.bottom - rect.height * 0.100
+    };
+    let radius = requestedRadius;
+    let best = point;
+    for (let i = 0; i < 14; i++) {
+      const css = projectWorldToCss(best);
+      if (css && css.x >= safe.left && css.x <= safe.right && css.y >= safe.top && css.y <= safe.bottom) return best;
+      radius = Math.max(minRadius, radius - 0.07);
+      best = worldPointForRadius(fallbackAngle + (rng() - 0.5) * 0.018, radius, y);
+    }
+    return best;
+  }
+
   function keepWorldPointInsideScreen(point, fallbackAngle, requestedMetric, y, rng) {
     if (!point || !ui.canvas) return point;
     const rect = ui.canvas.getBoundingClientRect();
@@ -1544,11 +1585,11 @@
     const insideMax = Number(C.game?.scatterInsideMetricMax || 0.84);
     const insideEdgeMin = Number(C.game?.scatterInsideEdgeMetricMin || 0.80);
     const insideEdgeMax = Number(C.game?.scatterInsideEdgeMetricMax || 0.88);
-    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.90);
-    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 2.18);
+    const outsideMin = Number(C.game?.scenarioOutRadiusMin || 2.54);
+    const outsideMax = Number(C.game?.scenarioOutRadiusMax || 2.82);
     const minSep = Number(C.game?.scatterMinSeparationWorld || 0.72);
-    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.72);
-    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.04);
+    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.76);
+    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.05);
 
     const durMin = Number(C.game?.scatterDurationMinMs || 430);
     const durMax = Number(C.game?.scatterDurationMaxMs || 690);
@@ -1562,13 +1603,13 @@
 
       const offset = outsideFanOffset(order, targetIds.length, fanStep);
       const angle = scatterAxisAngle + offset + (rng()-0.5)*fanJitter;
-      const metric = outsideMin + (outsideMax-outsideMin)*(0.25 + 0.75*rng());
+      const radius = outsideMin + (outsideMax-outsideMin)*(0.20 + 0.80*rng());
       const y = 0.095 + rng()*0.020;
 
-      let targetPosition = chooseSeparatedWhiteMetricPoint(
-        angle, metric, y, usedLandingPoints, minSep*1.24, rng, false
+      let targetPosition = chooseSeparatedRadiusPoint(
+        angle, radius, y, usedLandingPoints, minSep*1.30, rng, 0.11, 0.10
       );
-      targetPosition = keepWorldPointInsideScreen(targetPosition, angle, metric, y, rng);
+      targetPosition = keepWorldRadiusPointInsideScreen(targetPosition, angle, radius, y, rng, Number(C.game?.scenarioOutRadiusMin || 2.54));
       usedLandingPoints.push(targetPosition);
 
       const distToImpact = Math.hypot(
@@ -1852,7 +1893,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.12.3] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.5] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -2080,7 +2121,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.12.3] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.5] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2523,9 +2564,14 @@
     const maxDist = Number(C.game?.sakaContactSnapMaxDistance || 0.95);
     if (bestDist > maxDist) return point;
 
-    // Aim the SAKA centre directly over the closest real chükö.
-    // This guarantees visible contact before the deterministic scatter begins.
-    return { x: best.item.mesh.position.x, z: best.item.mesh.position.z };
+    // Keep manual aim visually smooth: instead of hard snapping the marker far away,
+    // only nudge the landing point toward the nearest real chükö so SAKA always has contact.
+    const pull = Math.max(0.0, Math.min(1.0, 1.0 - bestDist / Math.max(0.001, maxDist)));
+    const blend = 0.28 + 0.54 * pull;
+    return {
+      x: point.x + (best.item.mesh.position.x - point.x) * blend,
+      z: point.z + (best.item.mesh.position.z - point.z) * blend
+    };
   }
 
   function throwSaka(options = {}) {
@@ -2654,10 +2700,10 @@
     const distPre = Math.hypot(dxPre, dzPre);
     const deterministicRound = scenarioRuntime.active && C.game?.deterministicScatter !== false;
     const triggerHeight = deterministicRound
-      ? Number(C.game?.sakaDeterministicContactTriggerY || 0.43)
+      ? Math.min(Number(C.game?.sakaDeterministicContactTriggerY || 0.34), ballisticTargetYForAim() + 0.05)
       : Number(cfg.triggerHeight || 0.72);
     const triggerRadius = deterministicRound
-      ? Number(C.game?.sakaDeterministicContactRadius || 0.10)
+      ? Number(C.game?.sakaDeterministicContactRadius || 0.08)
       : Number(cfg.triggerRadius || 0.48);
 
     // Safety fallback: if the pile has not yet been released but SAKA is already
@@ -2674,16 +2720,32 @@
     if (aimTarget) aimTarget.setEnabled(false);
 
     if (deterministicRound) {
-      // Authoritative contact: SAKA reaches the visible target marker first, then
-      // the deterministic scatter begins from that exact impact point.
+      // At the deterministic impact moment, anchor SAKA onto the nearest current chükö.
+      // This guarantees a visible touch before the scripted scatter begins.
+      let contactX = tp.x;
+      let contactZ = tp.z;
+      let bestDist = Number.POSITIVE_INFINITY;
+      roundPool.chukos.forEach(item => {
+        if (!item?.mesh) return;
+        const d = Math.hypot(item.mesh.position.x - tp.x, item.mesh.position.z - tp.z);
+        if (d < bestDist) {
+          bestDist = d;
+          contactX = item.mesh.position.x;
+          contactZ = item.mesh.position.z;
+        }
+      });
       const contactY = ballisticTargetYForAim();
       try {
-        saka.position.x = tp.x;
-        saka.position.z = tp.z;
-        saka.position.y = Math.max(contactY, Math.min(saka.position.y, contactY + 0.02));
+        saka.position.x = contactX;
+        saka.position.z = contactZ;
+        saka.position.y = Math.max(contactY, Math.min(saka.position.y, contactY + 0.015));
         sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(0, Math.min(0, sakaVelocity.y), 0));
         sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
       } catch (_) {}
+      if (throwState?.targetPoint) {
+        throwState.targetPoint.x = contactX;
+        throwState.targetPoint.z = contactZ;
+      }
       startScenarioScatter();
       return;
     }
