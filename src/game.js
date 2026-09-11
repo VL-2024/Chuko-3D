@@ -1461,15 +1461,15 @@
   function keepWorldPointInsideScreen(point, fallbackAngle, requestedMetric, y, rng) {
     if (!point || !ui.canvas) return point;
     const rect = ui.canvas.getBoundingClientRect();
-    const safe = { left: rect.left + rect.width*0.055, right: rect.right - rect.width*0.055,
-                   top: rect.top + rect.height*0.070, bottom: rect.bottom - rect.height*0.120 };
+    const safe = { left: rect.left + rect.width*0.045, right: rect.right - rect.width*0.045,
+                   top: rect.top + rect.height*0.060, bottom: rect.bottom - rect.height*0.095 };
     let metric = requestedMetric;
     let best = point;
-    for (let i=0;i<10;i++) {
+    for (let i=0;i<12;i++) {
       const css = projectWorldToCss(best);
       if (css && css.x>=safe.left && css.x<=safe.right && css.y>=safe.top && css.y<=safe.bottom) return best;
-      metric = Math.max(1.55, metric - 0.045);
-      best = worldPointForWhiteMetric(fallbackAngle + (rng()-0.5)*0.025, metric, y);
+      metric = Math.max(1.82, metric - 0.055);
+      best = worldPointForWhiteMetric(fallbackAngle + (rng()-0.5)*0.020, metric, y);
     }
     return best;
   }
@@ -1490,14 +1490,28 @@
     return (order % 2 ? 1 : -1) * (k + 0.5) * step;
   }
 
+  function currentPileCentre() {
+    const points = [];
+    roundPool?.chukos?.forEach(item => {
+      const p = item?.mesh?.position;
+      if (p) points.push(p);
+    });
+    if (!points.length) {
+      return { x: Number(tuning.pileX || 0), z: Number(tuning.pileZ || 0) };
+    }
+    const sum = points.reduce((acc,p)=>{ acc.x += p.x; acc.z += p.z; return acc; }, { x:0, z:0 });
+    return { x: sum.x / points.length, z: sum.z / points.length };
+  }
+
   function prepareScenarioLandingPlan(tp) {
     if (!scenarioRuntime.active || !scenarioRuntime.plan || !roundPool.initialized) return;
 
     const plan = scenarioRuntime.plan;
     const count = Math.max(0, Math.min(C.pile.chukoCount, Number(plan.regular || 0)));
     const rng = seededRng(`${scenarioRuntime.seed}|landing-plan-v2|${tp.x.toFixed(3)}|${tp.z.toFixed(3)}`);
-    const pileX = Number(tuning.pileX || 0);
-    const pileZ = Number(tuning.pileZ || 0);
+    const pileCentre = currentPileCentre();
+    const pileX = Number(pileCentre.x || 0);
+    const pileZ = Number(pileCentre.z || 0);
 
     // Select the actual chükö closest to the SAKA contact point BEFORE the throw.
     const scored = roundPool.chukos.map((item,index)=>({
@@ -1521,39 +1535,38 @@
     const insideIds = [...Array(C.pile.chukoCount).keys()]
       .filter(i=>!scenarioRuntime.targetIds.has(i));
 
-    // Scatter direction goes FROM the SAKA impact point THROUGH the pile centre
-    // and further beyond it. This matches the visual impulse of a top-down hit:
-    // hit at the bottom -> pieces travel through the centre toward the top, etc.
+    // Scatter direction goes FROM the visible SAKA contact point THROUGH the real
+    // pile centre and then further beyond it. Use the live average pile centre,
+    // not the tuning default, so bottom-edge hits really travel through the pile.
     const scatterAxisAngle = Math.atan2(pileZ - tp.z, pileX - tp.x);
 
-    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.52);
-    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.96);
-    const insideEdgeMin = Number(C.game?.scatterInsideEdgeMetricMin || 0.88);
-    const insideEdgeMax = Number(C.game?.scatterInsideEdgeMetricMax || 0.97);
-    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.12);
-    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 1.22);
-    const minSep = Number(C.game?.scatterMinSeparationWorld || 0.56);
-    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.68);
-    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.10);
+    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.46);
+    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.84);
+    const insideEdgeMin = Number(C.game?.scatterInsideEdgeMetricMin || 0.80);
+    const insideEdgeMax = Number(C.game?.scatterInsideEdgeMetricMax || 0.88);
+    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.90);
+    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 2.18);
+    const minSep = Number(C.game?.scatterMinSeparationWorld || 0.72);
+    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.72);
+    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.04);
 
     const durMin = Number(C.game?.scatterDurationMinMs || 430);
     const durMax = Number(C.game?.scatterDurationMaxMs || 690);
     const delayMax = Number(C.game?.scatterDelayMaxMs || 105);
 
-    // OUT points: the WHITE CHALK CIRCLE is the boundary.
-    // Place pieces clearly outside it (metric > 1), but not at the outer green edge.
-    // Angles fan widely around the actual impact direction.
+    // OUT points: clearly beyond the green carpet edge, but still inside the screen.
+    // They fly through the centre and keep separating left/right from the impact axis.
     targetIds.forEach((id,order)=>{
       const item = roundPool.chukos[id];
       if (!item?.mesh) return;
 
       const offset = outsideFanOffset(order, targetIds.length, fanStep);
       const angle = scatterAxisAngle + offset + (rng()-0.5)*fanJitter;
-      const metric = outsideMin + (outsideMax-outsideMin)*(0.20 + 0.80*rng());
+      const metric = outsideMin + (outsideMax-outsideMin)*(0.25 + 0.75*rng());
       const y = 0.095 + rng()*0.020;
 
       let targetPosition = chooseSeparatedWhiteMetricPoint(
-        angle, metric, y, usedLandingPoints, minSep*1.12, rng, false
+        angle, metric, y, usedLandingPoints, minSep*1.24, rng, false
       );
       targetPosition = keepWorldPointInsideScreen(targetPosition, angle, metric, y, rng);
       usedLandingPoints.push(targetPosition);
@@ -1576,16 +1589,15 @@
     });
 
     // IN points:
-    // spread around the whole white circle with a minimum separation.
-    // Some pieces deliberately sit close enough to the line that their body can
-    // overlap it by about 15-20%, but their centre stays inside.
+    // keep them fully inside the white ring by their centres, with some pieces
+    // allowed close enough that 15-20% of the mesh may overlap the line.
     insideIds.forEach((id,order)=>{
       const item = roundPool.chukos[id];
       if (!item?.mesh) return;
 
       const n = Math.max(1,insideIds.length);
       const golden = 2.399963229728653; // avoids radial rows / clusters
-      const angle = scatterAxisAngle + order*golden + (rng()-0.5)*0.18;
+      const angle = scatterAxisAngle + order*golden + (rng()-0.5)*0.10;
 
       let metric;
       // Roughly every third inside piece is allowed near the white line.
@@ -2279,10 +2291,10 @@
     // Very close to contact, remove the last few centimetres of accumulated
     // numerical/collision error. This is still velocity guidance, not teleporting.
     const horizontalError = Math.hypot(tp.x - saka.position.x, tp.z - saka.position.z);
-    if (saka.position.y <= contactY + 0.16 && horizontalError < 0.22) {
-      const closeT = Math.max(0.022, t);
-      vx = Math.max(-maxSpeed, Math.min(maxSpeed, (tp.x - saka.position.x) / closeT));
-      vz = Math.max(-maxSpeed, Math.min(maxSpeed, (tp.z - saka.position.z) / closeT));
+    if (saka.position.y <= contactY + 0.18 && horizontalError < 0.32) {
+      const closeT = Math.max(0.016, t * 0.78);
+      vx = Math.max(-maxSpeed*1.18, Math.min(maxSpeed*1.18, (tp.x - saka.position.x) / closeT));
+      vz = Math.max(-maxSpeed*1.18, Math.min(maxSpeed*1.18, (tp.z - saka.position.z) / closeT));
     }
 
     sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(vx, velocity.y, vz));
@@ -2662,8 +2674,16 @@
     if (aimTarget) aimTarget.setEnabled(false);
 
     if (deterministicRound) {
-      // No post-impact steering and no late correction. The whole scatter uses
-      // the precomputed landing plan prepared before the throw.
+      // Authoritative contact: SAKA reaches the visible target marker first, then
+      // the deterministic scatter begins from that exact impact point.
+      const contactY = ballisticTargetYForAim();
+      try {
+        saka.position.x = tp.x;
+        saka.position.z = tp.z;
+        saka.position.y = Math.max(contactY, Math.min(saka.position.y, contactY + 0.02));
+        sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(0, Math.min(0, sakaVelocity.y), 0));
+        sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
+      } catch (_) {}
       startScenarioScatter();
       return;
     }
