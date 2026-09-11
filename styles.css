@@ -91,7 +91,7 @@ button:disabled { opacity: .42; cursor: default; }
 .tune-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 999px; }
 
 
-/* v0.10.2 game loop */
+/* v0.10.3 game loop */
 .game-bar { position: fixed; z-index: 7; top: calc(54px + var(--safe-top)); left: 12px; display: flex; gap: 8px; align-items: center; }
 .mode-switch { display: flex; padding: 3px; border-radius: 12px; background: rgba(3,12,16,.66); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(8px); }
 .mode { min-height: 30px; padding: 0 9px; border-radius: 9px; background: transparent; color: rgba(255,255,255,.62); font-size: 9px; letter-spacing: .08em; }

@@ -68,7 +68,7 @@
     ticketNo: Number(C.game?.demoTicketStart || 100001),
     resultShown: false
   };
-  // v0.10.2: dynamic round objects are created once and reused on every reset.
+  // v0.10.3: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -80,6 +80,7 @@
   let prestepRestoreScheduled = false;
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
+  let sakaClampPending = false;
 
   const TUNE_STORAGE_KEY = 'chuko3d-v0102-gamefix';
   const TUNE_DEFAULTS = Object.freeze({
@@ -229,7 +230,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.10.2] GLB bounds', {
+    console.info('[CHUKO 0.10.3] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -964,7 +965,7 @@
   }
 
   function createEnvironment() {
-    // v0.10.2: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.10.3: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1098,7 +1099,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.10.2 pooling/reset -------------------------------------------------------
+  // v0.10.3 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1353,7 +1354,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.10.2] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.10.3] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
