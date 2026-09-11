@@ -271,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.12.5] GLB bounds', {
+    console.info('[CHUKO 0.12.6] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -1479,22 +1479,22 @@
     return best || worldPointForRadius(angle, radius, y);
   }
 
-  function keepWorldRadiusPointInsideScreen(point, fallbackAngle, requestedRadius, y, rng, minRadius = 2.28) {
+  function keepWorldRadiusPointInsideScreen(point, fallbackAngle, requestedRadius, y, rng, minRadius = 2.24) {
     if (!point || !ui.canvas) return point;
     const rect = ui.canvas.getBoundingClientRect();
     const safe = {
-      left: rect.left + rect.width * 0.045,
-      right: rect.right - rect.width * 0.045,
-      top: rect.top + rect.height * 0.060,
-      bottom: rect.bottom - rect.height * 0.100
+      left: rect.left + rect.width * 0.090,
+      right: rect.right - rect.width * 0.090,
+      top: rect.top + rect.height * 0.090,
+      bottom: rect.bottom - rect.height * 0.165
     };
     let radius = requestedRadius;
     let best = point;
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 22; i++) {
       const css = projectWorldToCss(best);
       if (css && css.x >= safe.left && css.x <= safe.right && css.y >= safe.top && css.y <= safe.bottom) return best;
-      radius = Math.max(minRadius, radius - 0.07);
-      best = worldPointForRadius(fallbackAngle + (rng() - 0.5) * 0.018, radius, y);
+      radius = Math.max(minRadius, radius - 0.11);
+      best = worldPointForRadius(fallbackAngle + (rng() - 0.5) * 0.012, radius, y);
     }
     return best;
   }
@@ -1570,6 +1570,11 @@
     scenarioRuntime.khanOut = false;
     scenarioRuntime.targetsLockedAtImpact = true;
     scenarioRuntime.targetDirections = new Map();
+    scenarioRuntime.contactChukoIndex = scored.length ? scored[0].index : -1;
+    scenarioRuntime.contactPoint = scored.length ? {
+      x: scored[0].item?.mesh?.position?.x || tp.x,
+      z: scored[0].item?.mesh?.position?.z || tp.z
+    } : { x: tp.x, z: tp.z };
 
     const flightPlan = [];
     const usedLandingPoints = [];
@@ -1893,7 +1898,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.12.5] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.6] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -2121,7 +2126,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.12.5] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.6] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2695,15 +2700,18 @@
     const sakaVelocity = readLinearVelocity(sakaAggregate?.body);
     if (sakaVelocity.y > 0.15) return;
 
-    const dxPre = saka.position.x - tp.x;
-    const dzPre = saka.position.z - tp.z;
-    const distPre = Math.hypot(dxPre, dzPre);
     const deterministicRound = scenarioRuntime.active && C.game?.deterministicScatter !== false;
+    const impactRef = deterministicRound && scenarioRuntime.contactPoint
+      ? scenarioRuntime.contactPoint
+      : tp;
+    const dxPre = saka.position.x - impactRef.x;
+    const dzPre = saka.position.z - impactRef.z;
+    const distPre = Math.hypot(dxPre, dzPre);
     const triggerHeight = deterministicRound
-      ? Math.min(Number(C.game?.sakaDeterministicContactTriggerY || 0.34), ballisticTargetYForAim() + 0.05)
+      ? Math.min(Number(C.game?.sakaDeterministicContactTriggerY || 0.40), ballisticTargetYForAim() + 0.09)
       : Number(cfg.triggerHeight || 0.72);
     const triggerRadius = deterministicRound
-      ? Number(C.game?.sakaDeterministicContactRadius || 0.08)
+      ? Number(C.game?.sakaDeterministicContactRadius || 0.18)
       : Number(cfg.triggerRadius || 0.48);
 
     // Safety fallback: if the pile has not yet been released but SAKA is already
@@ -2720,25 +2728,21 @@
     if (aimTarget) aimTarget.setEnabled(false);
 
     if (deterministicRound) {
-      // At the deterministic impact moment, anchor SAKA onto the nearest current chükö.
-      // This guarantees a visible touch before the scripted scatter begins.
-      let contactX = tp.x;
-      let contactZ = tp.z;
-      let bestDist = Number.POSITIVE_INFINITY;
-      roundPool.chukos.forEach(item => {
-        if (!item?.mesh) return;
-        const d = Math.hypot(item.mesh.position.x - tp.x, item.mesh.position.z - tp.z);
-        if (d < bestDist) {
-          bestDist = d;
-          contactX = item.mesh.position.x;
-          contactZ = item.mesh.position.z;
-        }
-      });
+      // At the deterministic impact moment, anchor SAKA onto the chosen contact chükö.
+      // This guarantees visible touch and immediate scatter, including for far-half hits.
+      let contactX = scenarioRuntime.contactPoint?.x ?? tp.x;
+      let contactZ = scenarioRuntime.contactPoint?.z ?? tp.z;
+      const contactIdx = Number.isFinite(scenarioRuntime.contactChukoIndex) ? scenarioRuntime.contactChukoIndex : -1;
+      const contactItem = contactIdx >= 0 ? roundPool.chukos[contactIdx] : null;
+      if (contactItem?.mesh) {
+        contactX = contactItem.mesh.position.x;
+        contactZ = contactItem.mesh.position.z;
+      }
       const contactY = ballisticTargetYForAim();
       try {
         saka.position.x = contactX;
         saka.position.z = contactZ;
-        saka.position.y = Math.max(contactY, Math.min(saka.position.y, contactY + 0.015));
+        saka.position.y = Math.max(contactY, Math.min(saka.position.y, contactY + 0.010));
         sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(0, Math.min(0, sakaVelocity.y), 0));
         sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
       } catch (_) {}
@@ -2746,6 +2750,7 @@
         throwState.targetPoint.x = contactX;
         throwState.targetPoint.z = contactZ;
       }
+      scenarioRuntime.contactPoint = { x: contactX, z: contactZ };
       startScenarioScatter();
       return;
     }
