@@ -1,3 +1,10 @@
-# CHUKO Modern 3D v0.11.0 reference
+# CHUKO Modern 3D v0.11.1 reference
 
-3D/Havok база: v0.10.3 (с механическим ориентиром v0.8.22). LMS/ticket/scenario architecture перенесена из v20.61 без переноса PixiJS/Matter.js рендера.
+В v0.11.1 сценарная модель приближена к отлаженной v20.61:
+
+- scenario target set является источником истины;
+- нецелевые элементы не могут визуально выйти за игровую границу;
+- целевые элементы помечаются OUT и фиксируются снаружи;
+- при завершении раунда forceScenarioCompletion гарантирует точное соответствие ZERO/ONE/TWO/THREE/FOUR/FIVE/FIVE_KHAN.
+
+Физика остаётся Havok; LMS остаётся авторитетным источником ticket/scenario/win.
