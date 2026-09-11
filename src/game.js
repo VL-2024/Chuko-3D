@@ -97,7 +97,7 @@
     targetsLockedAtImpact: false,
     active: false
   };
-  // v0.11.3: dynamic round objects are created once and reused on every reset.
+  // v0.11.4: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -261,7 +261,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.11.3] GLB bounds', {
+    console.info('[CHUKO 0.11.4] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -996,7 +996,7 @@
   }
 
   function createEnvironment() {
-    // v0.11.3: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.11.4: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1130,7 +1130,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.11.3 pooling/reset -------------------------------------------------------
+  // v0.11.4 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1475,7 +1475,7 @@
     const metric = whiteRingMetricForItem(item);
     if (metric == null) return;
 
-    const softMetric = Number(C.game?.scenarioInsideSoftMetric || 0.78);
+    const softMetric = Number(C.game?.scenarioInsideSoftMetric || 0.74);
     if (metric <= softMetric) return;
 
     const mesh = item.mesh;
@@ -1503,6 +1503,66 @@
     } catch (_) {}
   }
 
+  function placeItemOnWhiteMetric(item, targetMetric, outward = false) {
+    if (!item?.mesh || !item?.aggregate?.body) return false;
+
+    const mesh = item.mesh;
+    const body = item.aggregate.body;
+    const y = Math.max(0.08, Math.min(mesh.position.y, 0.42));
+    const angle = Math.atan2(mesh.position.z, mesh.position.x);
+
+    // Search along the same world ray until the projected point lands on the
+    // desired visible white-ring metric.
+    let lo = 0.10;
+    let hi = 3.20;
+    let bestR = Math.hypot(mesh.position.x, mesh.position.z) || (outward ? 2.55 : 1.70);
+    let bestDiff = Infinity;
+
+    for (let i = 0; i < 26; i++) {
+      const mid = (lo + hi) * 0.5;
+      const probe = new BABYLON.Vector3(Math.cos(angle) * mid, y, Math.sin(angle) * mid);
+      const metric = whiteRingMetricForWorld(probe);
+      if (metric == null) break;
+      const diff = Math.abs(metric - targetMetric);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestR = mid;
+      }
+      if (metric < targetMetric) lo = mid;
+      else hi = mid;
+    }
+
+    try {
+      body.setLinearVelocity(BABYLON.Vector3.Zero());
+      body.setAngularVelocity(BABYLON.Vector3.Zero());
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+      mesh.position.set(Math.cos(angle) * bestR, y, Math.sin(angle) * bestR);
+      mesh.computeWorldMatrix(true);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function enforceScenarioVisualAtRest() {
+    if (!scenarioRuntime.active || !scenarioRuntime.plan) return;
+
+    const insideMetric = Number(C.game?.scenarioSettleInsideMetric || 0.92);
+    const outsideMetric = Number(C.game?.scenarioSettleOutsideMetric || 1.10);
+
+    roundPool.chukos.forEach((item, index) => {
+      if (!item?.mesh || !item?.aggregate?.body) return;
+      const targeted = scenarioRuntime.targetIds.has(index);
+      placeItemOnWhiteMetric(item, targeted ? outsideMetric : insideMetric, targeted);
+      if (targeted) scenarioRuntime.outIds.add(index);
+    });
+
+    if (roundPool.khan?.mesh && roundPool.khan?.aggregate?.body) {
+      placeItemOnWhiteMetric(roundPool.khan, scenarioRuntime.khanTarget ? outsideMetric : insideMetric, !!scenarioRuntime.khanTarget);
+      scenarioRuntime.khanOut = !!scenarioRuntime.khanTarget;
+    }
+  }
+
   function freezeRoundPhysics() {
     if (roundPhysicsFrozen) return;
     roundPhysicsFrozen = true;
@@ -1510,8 +1570,9 @@
   }
 
   function finalizeScenarioVisual() {
-    // Important: never move pieces at settlement. v0.11.2 could reposition
-    // already stopped objects here, which looked like a second unexplained move.
+    // Single final settle correction: make the picture match the scenario that
+    // the player sees on screen, then freeze immediately so nothing moves again.
+    enforceScenarioVisualAtRest();
     freezeRoundPhysics();
   }
 
@@ -1536,7 +1597,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.11.3] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.11.4] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -1760,7 +1821,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.11.3] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.11.4] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2638,7 +2699,7 @@
 
     const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
     const controlMs = Number(C.game?.scenarioForceMs || 420);
-    const freezeMs = Number(C.game?.scenarioFreezeMs || 1100);
+    const freezeMs = Number(C.game?.scenarioFreezeMs || 950);
 
     if (elapsed >= freezeMs) {
       freezeRoundPhysics();
