@@ -1,10 +1,3 @@
-# CHUKO Modern 3D v0.11.1 reference
+# CHUKO Modern 3D v0.11.2 reference
 
-В v0.11.1 сценарная модель приближена к отлаженной v20.61:
-
-- scenario target set является источником истины;
-- нецелевые элементы не могут визуально выйти за игровую границу;
-- целевые элементы помечаются OUT и фиксируются снаружи;
-- при завершении раунда forceScenarioCompletion гарантирует точное соответствие ZERO/ONE/TWO/THREE/FOUR/FIVE/FIVE_KHAN.
-
-Физика остаётся Havok; LMS остаётся авторитетным источником ticket/scenario/win.
+Сценарная граница переведена с world-radius на screen-space calibration реальной белой линии `field-realistic.webp`. Это устраняет расхождение между счётчиком и тем, что игрок визуально видит за белым кругом.

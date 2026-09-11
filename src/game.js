@@ -30,7 +30,8 @@
     balanceValue: document.getElementById('balanceValue'),
     resultCard: document.getElementById('resultCard'),
     resultMain: document.getElementById('resultMain'),
-    resultSub: document.getElementById('resultSub')
+    resultSub: document.getElementById('resultSub'),
+    fieldPhoto: document.querySelector('.field-photo')
   };
 
   let engine;
@@ -95,7 +96,7 @@
     impactAt: 0,
     active: false
   };
-  // v0.11.1: dynamic round objects are created once and reused on every reset.
+  // v0.11.2: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -109,7 +110,7 @@
   const chukoClampPending = new Set();
   let sakaClampPending = false;
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0102-gamefix';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0112-scenario-visual';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -257,7 +258,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.11.1] GLB bounds', {
+    console.info('[CHUKO 0.11.2] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -992,7 +993,7 @@
   }
 
   function createEnvironment() {
-    // v0.11.1: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.11.2: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1126,7 +1127,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.11.1 pooling/reset -------------------------------------------------------
+  // v0.11.2 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1427,12 +1428,11 @@
       return true;
     }
 
-    const markRadius = Number(C.game?.scenarioMarkOutRadius || 2.48);
-    const outRadius = Number(C.game?.scenarioOutRadius || 2.58);
+    const metric = whiteRingMetricForItem(item);
+    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.08);
+    if (!force && metric != null && metric < markMetric) return false;
+
     const r = Math.hypot(item.mesh.position.x, item.mesh.position.z);
-
-    if (!force && r < markRadius) return false;
-
     let angle;
     if (isKhan) {
       angle = r > 0.35 ? Math.atan2(item.mesh.position.z, item.mesh.position.x) : -0.78;
@@ -1442,54 +1442,59 @@
         : (scenarioRuntime.targetDirections.get(index) ?? 0);
     }
 
-    // Clear visual separation from the white line: OUT pieces are fixed
-    // noticeably beyond it, not left straddling the border.
     const rng = seededRng(`${scenarioRuntime.seed}|out|${isKhan ? 'KHAN' : index}`);
-    const finalR = outRadius + rng() * 0.10;
-    setFinalPiecePosition(item, finalR, angle);
+    const finalMetric = Number(C.game?.scenarioOutFinalMetric || 1.18) + rng() * 0.035;
+    if (!setPieceAtWhiteRingMetric(item, angle, finalMetric)) {
+      const fallbackRadius = Number(C.game?.scenarioOutRadius || 2.58) + rng() * 0.08;
+      setFinalPiecePosition(item, fallbackRadius, angle);
+    }
 
     if (isKhan) scenarioRuntime.khanOut = true;
     else scenarioRuntime.outIds.add(index);
-
     return true;
   }
 
   function keepScenarioNonTargetInside(item) {
     if (!item?.mesh || !item?.aggregate?.body) return;
-    const safeRadius = Number(C.game?.scenarioInRadius || 1.84);
-    const hardRadius = Number(C.game?.scenarioNonTargetHardRadius || 2.08);
-    const r = Math.hypot(item.mesh.position.x, item.mesh.position.z);
-    if (r <= safeRadius) return;
 
-    const inv = 1 / Math.max(1e-6, r);
-    const nx = item.mesh.position.x * inv;
-    const nz = item.mesh.position.z * inv;
+    const metric = whiteRingMetricForItem(item);
+    if (metric == null) return;
 
-    if (r >= hardRadius) {
-      clampChukoInsideView(item, nx, nz, safeRadius);
+    const safeMetric = Number(C.game?.scenarioInsideMetric || 0.74);
+    const softMetric = Number(C.game?.scenarioInsideSoftMetric || 0.82);
+    const hardMetric = Number(C.game?.scenarioInsideHardMetric || 0.92);
+    if (metric <= softMetric) return;
+
+    const body = item.aggregate.body;
+    const mesh = item.mesh;
+    const r = Math.hypot(mesh.position.x, mesh.position.z);
+    const inv = 1 / Math.max(1e-6, r || 1);
+    const nx = mesh.position.x * inv;
+    const nz = mesh.position.z * inv;
+    const angle = Math.atan2(mesh.position.z, mesh.position.x);
+
+    if (metric >= hardMetric) {
+      if (!setPieceAtWhiteRingMetric(item, angle, safeMetric, true)) {
+        clampChukoInsideView(item, nx, nz, Number(C.game?.scenarioInRadius || 1.84));
+      }
       return;
     }
 
-    // Soft pull: still looks physical, but a ZERO/ONE/etc non-target
-    // cannot visibly drift over the white line.
-    const body = item.aggregate.body;
     const vel = readLinearVelocity(body);
-    const outward = vel.x * nx + vel.z * nz;
-    let vx = vel.x * 0.82;
-    let vz = vel.z * 0.82;
-    if (outward > 0) {
-      vx -= nx * (outward * 1.45 + 0.18);
-      vz -= nz * (outward * 1.45 + 0.18);
-    }
+    const inwardGain = 0.22 + Math.min(0.28, (metric - softMetric) * 1.8);
     try {
-      body.setLinearVelocity(new BABYLON.Vector3(vx, Math.min(vel.y, 0.28), vz));
+      body.setLinearVelocity(new BABYLON.Vector3(
+        vel.x - nx * inwardGain,
+        Math.min(vel.y, 0.22),
+        vel.z - nz * inwardGain
+      ));
     } catch (_) {}
   }
 
   function forceScenarioCompletion() {
     if (!scenarioRuntime.active || !scenarioRuntime.plan) return;
 
-    const safeRadius = Number(C.game?.scenarioInRadius || 1.84);
+    const safeMetric = Number(C.game?.scenarioInsideMetric || 0.74);
     const rng = seededRng(`${scenarioRuntime.seed}|force-final`);
 
     roundPool.chukos.forEach((item, index) => {
@@ -1497,10 +1502,13 @@
       if (targeted) {
         markScenarioOut(item, index, false, true);
       } else if (item?.mesh) {
-        const r = Math.hypot(item.mesh.position.x, item.mesh.position.z);
-        if (r > safeRadius) {
+        const metric = whiteRingMetricForItem(item);
+        if (metric == null || metric > safeMetric) {
           const angle = Math.atan2(item.mesh.position.z, item.mesh.position.x);
-          setFinalPiecePosition(item, safeRadius - 0.04 - rng()*0.08, angle);
+          const finalMetric = Math.max(0.60, safeMetric - 0.03 - rng() * 0.05);
+          if (!setPieceAtWhiteRingMetric(item, angle, finalMetric)) {
+            setFinalPiecePosition(item, Number(C.game?.scenarioInRadius || 1.84) - 0.08, angle);
+          }
         }
       }
     });
@@ -1509,10 +1517,12 @@
       if (scenarioRuntime.khanTarget) {
         markScenarioOut(roundPool.khan, -1, true, true);
       } else {
-        const r = Math.hypot(roundPool.khan.mesh.position.x, roundPool.khan.mesh.position.z);
-        if (r > safeRadius - 0.05) {
+        const metric = whiteRingMetricForItem(roundPool.khan);
+        if (metric == null || metric > safeMetric - 0.03) {
           const angle = Math.atan2(roundPool.khan.mesh.position.z, roundPool.khan.mesh.position.x);
-          setFinalPiecePosition(roundPool.khan, safeRadius - 0.10, angle);
+          if (!setPieceAtWhiteRingMetric(roundPool.khan, angle, safeMetric - 0.08)) {
+            setFinalPiecePosition(roundPool.khan, Number(C.game?.scenarioInRadius || 1.84) - 0.12, angle);
+          }
         }
       }
     }
@@ -1547,7 +1557,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.11.1] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.11.2] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -1770,7 +1780,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.11.1] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.11.2] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2433,6 +2443,84 @@
     }
   }
 
+
+  function renderPointToCss(point) {
+    if (!point || !ui.canvas || !engine) return null;
+    const rect = ui.canvas.getBoundingClientRect();
+    const rw = Math.max(1, engine.getRenderWidth());
+    const rh = Math.max(1, engine.getRenderHeight());
+    return {
+      x: rect.left + point.x * rect.width / rw,
+      y: rect.top + point.y * rect.height / rh
+    };
+  }
+
+  function projectWorldToCss(position) {
+    if (!scene?.activeCamera || !engine || !position) return null;
+    try {
+      const p = BABYLON.Vector3.Project(
+        position,
+        BABYLON.Matrix.Identity(),
+        scene.getTransformMatrix(),
+        scene.activeCamera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+      );
+      return renderPointToCss(p);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function whiteRingCssGeometry() {
+    const el = ui.fieldPhoto || document.querySelector('.field-photo');
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return {
+      cx: rect.left + rect.width * Number(C.game?.whiteRingCx || 0.5051),
+      cy: rect.top + rect.height * Number(C.game?.whiteRingCy || 0.4697),
+      rx: rect.width * Number(C.game?.whiteRingRx || 0.2948),
+      ry: rect.height * Number(C.game?.whiteRingRy || 0.2260)
+    };
+  }
+
+  function whiteRingMetricForWorld(position) {
+    const p = projectWorldToCss(position);
+    const ring = whiteRingCssGeometry();
+    if (!p || !ring || ring.rx <= 1 || ring.ry <= 1) return null;
+    return Math.hypot((p.x - ring.cx) / ring.rx, (p.y - ring.cy) / ring.ry);
+  }
+
+  function whiteRingMetricForItem(item) {
+    if (!item?.mesh) return null;
+    return whiteRingMetricForWorld(item.mesh.getAbsolutePosition());
+  }
+
+  function worldRadiusForWhiteRingMetric(angle, y, targetMetric) {
+    let lo = 0.02;
+    let hi = 3.35;
+    let best = 0.0;
+    for (let i = 0; i < 20; i++) {
+      const mid = (lo + hi) * 0.5;
+      const pos = new BABYLON.Vector3(Math.cos(angle) * mid, y, Math.sin(angle) * mid);
+      const metric = whiteRingMetricForWorld(pos);
+      if (metric == null) return null;
+      best = mid;
+      if (metric < targetMetric) lo = mid;
+      else hi = mid;
+    }
+    return best;
+  }
+
+  function setPieceAtWhiteRingMetric(item, angle, targetMetric, keepDynamic=false) {
+    if (!item?.mesh || !item?.aggregate?.body) return false;
+    const mesh = item.mesh;
+    const y = Math.max(0.10, Math.min(mesh.position.y, 0.34));
+    const radius = worldRadiusForWhiteRingMetric(angle, y, targetMetric);
+    if (!Number.isFinite(radius)) return false;
+    setFinalPiecePosition(item, radius, angle, keepDynamic);
+    return true;
+  }
+
   function containSakaInsidePlayCircle() {
     if (!thrown || !saka || !sakaAggregate?.body || sakaClampPending) return;
 
@@ -2563,29 +2651,23 @@
     const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
     const pushStartMs = Number(C.game?.scenarioPushStartMs || 180);
     const forceMs = Number(C.game?.scenarioForceMs || 1150);
-    const markRadius = Number(C.game?.scenarioMarkOutRadius || 2.48);
+    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.08);
 
     roundPool.chukos.forEach((item,index)=>{
       if (!item?.mesh || !item?.aggregate?.body) return;
-
       const targeted = scenarioRuntime.targetIds.has(index);
-
       if (!targeted) {
         keepScenarioNonTargetInside(item);
         return;
       }
-
       if (scenarioRuntime.outIds.has(index)) return;
 
-      const r = Math.hypot(item.mesh.position.x,item.mesh.position.z);
-      if (r >= markRadius) {
+      const metric = whiteRingMetricForItem(item);
+      if (metric != null && metric >= markMetric) {
         markScenarioOut(item, index, false, false);
         return;
       }
-
-      // Give the naturally hit target some time first.
       if (elapsed < pushStartMs) return;
-
       if (elapsed >= forceMs) {
         markScenarioOut(item, index, false, true);
         return;
@@ -2598,17 +2680,14 @@
       const dz = Math.sin(angle);
       const vel = readLinearVelocity(body);
       const outward = vel.x*dx + vel.z*dz;
-
-      // Progressive support outward. It is stronger later, but does not reveal
-      // the result instantly at impact.
       const progress = Math.max(0, Math.min(1, (elapsed-pushStartMs) / Math.max(1, forceMs-pushStartMs)));
-      const desired = 1.65 + progress * 1.55;
+      const desired = 1.55 + progress * 1.70;
       if (outward < desired) {
-        const gain = 0.24 + progress * 0.20;
+        const gain = 0.24 + progress * 0.22;
         try {
           body.setLinearVelocity(new BABYLON.Vector3(
             vel.x + dx*(desired-outward)*gain,
-            Math.min(0.34, vel.y + 0.04),
+            Math.min(0.32, vel.y + 0.035),
             vel.z + dz*(desired-outward)*gain
           ));
         } catch (_) {}
@@ -2617,22 +2696,18 @@
 
     const khan = roundPool.khan;
     if (!khan?.mesh || !khan?.aggregate?.body) return;
-
     if (!scenarioRuntime.khanTarget) {
       keepScenarioNonTargetInside(khan);
       return;
     }
-
     if (scenarioRuntime.khanOut) return;
 
-    const r = Math.hypot(khan.mesh.position.x,khan.mesh.position.z);
-    if (r >= markRadius + 0.04) {
+    const metric = whiteRingMetricForItem(khan);
+    if (metric != null && metric >= markMetric + 0.02) {
       markScenarioOut(khan, -1, true, false);
       return;
     }
-
     if (elapsed < pushStartMs + 80) return;
-
     if (elapsed >= forceMs + 140) {
       markScenarioOut(khan, -1, true, true);
       return;
@@ -2643,12 +2718,12 @@
     const dx = 0.72, dz = -0.69;
     const outward = vel.x*dx + vel.z*dz;
     const progress = Math.max(0, Math.min(1, (elapsed-pushStartMs) / Math.max(1, forceMs-pushStartMs)));
-    const desired = 1.75 + progress*1.65;
+    const desired = 1.70 + progress*1.70;
     if (outward < desired) {
       try {
         body.setLinearVelocity(new BABYLON.Vector3(
           vel.x + dx*(desired-outward)*(0.26+progress*0.18),
-          Math.min(0.32,vel.y+0.04),
+          Math.min(0.30,vel.y+0.035),
           vel.z + dz*(desired-outward)*(0.26+progress*0.18)
         ));
       } catch (_) {}

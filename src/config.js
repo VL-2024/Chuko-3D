@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.11.1',
+  version: '0.11.2',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -146,6 +146,16 @@ window.CHUKO3D_CONFIG = Object.freeze({
     scenarioOutRadius: 2.58,
     scenarioPushStartMs: 180,
     scenarioForceMs: 1150,
+    // White chalk ring in field-realistic.webp, normalized to the full image rect.
+    whiteRingCx: 0.5051,
+    whiteRingCy: 0.4697,
+    whiteRingRx: 0.2948,
+    whiteRingRy: 0.2260,
+    scenarioInsideMetric: 0.74,
+    scenarioInsideSoftMetric: 0.82,
+    scenarioInsideHardMetric: 0.92,
+    scenarioOutMarkMetric: 1.08,
+    scenarioOutFinalMetric: 1.18,
     sakaContainSoftRadius: 2.02,
     sakaContainHardRadius: 2.14,
     sakaContainClampRadius: 1.98,
