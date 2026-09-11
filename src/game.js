@@ -101,7 +101,7 @@
     scatterComplete: false,
     active: false
   };
-  // v0.12.2: dynamic round objects are created once and reused on every reset.
+  // v0.12.3: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -271,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.12.2] GLB bounds', {
+    console.info('[CHUKO 0.12.3] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -1006,7 +1006,7 @@
   }
 
   function createEnvironment() {
-    // v0.12.2: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.12.3: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1140,7 +1140,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.12.2 pooling/reset -------------------------------------------------------
+  // v0.12.3 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1458,6 +1458,22 @@
     return best || worldPointForWhiteMetric(angle, metric, y);
   }
 
+  function keepWorldPointInsideScreen(point, fallbackAngle, requestedMetric, y, rng) {
+    if (!point || !ui.canvas) return point;
+    const rect = ui.canvas.getBoundingClientRect();
+    const safe = { left: rect.left + rect.width*0.055, right: rect.right - rect.width*0.055,
+                   top: rect.top + rect.height*0.070, bottom: rect.bottom - rect.height*0.120 };
+    let metric = requestedMetric;
+    let best = point;
+    for (let i=0;i<10;i++) {
+      const css = projectWorldToCss(best);
+      if (css && css.x>=safe.left && css.x<=safe.right && css.y>=safe.top && css.y<=safe.bottom) return best;
+      metric = Math.max(1.55, metric - 0.045);
+      best = worldPointForWhiteMetric(fallbackAngle + (rng()-0.5)*0.025, metric, y);
+    }
+    return best;
+  }
+
   function outsideFanOffset(order, count, step) {
     if (count <= 1) return 0;
     // Alternate left/right around the impact direction:
@@ -1505,8 +1521,10 @@
     const insideIds = [...Array(C.pile.chukoCount).keys()]
       .filter(i=>!scenarioRuntime.targetIds.has(i));
 
-    // Impact direction is the centre line of the OUT fan.
-    const impactAngle = Math.atan2(tp.z-pileZ, tp.x-pileX);
+    // Scatter direction goes FROM the SAKA impact point THROUGH the pile centre
+    // and further beyond it. This matches the visual impulse of a top-down hit:
+    // hit at the bottom -> pieces travel through the centre toward the top, etc.
+    const scatterAxisAngle = Math.atan2(pileZ - tp.z, pileX - tp.x);
 
     const insideMin = Number(C.game?.scatterInsideMetricMin || 0.52);
     const insideMax = Number(C.game?.scatterInsideMetricMax || 0.96);
@@ -1530,13 +1548,14 @@
       if (!item?.mesh) return;
 
       const offset = outsideFanOffset(order, targetIds.length, fanStep);
-      const angle = impactAngle + offset + (rng()-0.5)*fanJitter;
+      const angle = scatterAxisAngle + offset + (rng()-0.5)*fanJitter;
       const metric = outsideMin + (outsideMax-outsideMin)*(0.20 + 0.80*rng());
       const y = 0.095 + rng()*0.020;
 
-      const targetPosition = chooseSeparatedWhiteMetricPoint(
-        angle, metric, y, usedLandingPoints, minSep*1.05, rng, false
+      let targetPosition = chooseSeparatedWhiteMetricPoint(
+        angle, metric, y, usedLandingPoints, minSep*1.12, rng, false
       );
+      targetPosition = keepWorldPointInsideScreen(targetPosition, angle, metric, y, rng);
       usedLandingPoints.push(targetPosition);
 
       const distToImpact = Math.hypot(
@@ -1566,7 +1585,7 @@
 
       const n = Math.max(1,insideIds.length);
       const golden = 2.399963229728653; // avoids radial rows / clusters
-      const angle = impactAngle + Math.PI + order*golden + (rng()-0.5)*0.18;
+      const angle = scatterAxisAngle + order*golden + (rng()-0.5)*0.18;
 
       let metric;
       // Roughly every third inside piece is allowed near the white line.
@@ -1603,17 +1622,18 @@
     if (roundPool.khan?.mesh) {
       const targeted = !!plan.khan;
       const angle = targeted
-        ? impactAngle + outsideFanOffset(targetIds.length, targetIds.length+1, fanStep) + (rng()-0.5)*fanJitter
-        : impactAngle + Math.PI*0.82 + (rng()-0.5)*0.34;
+        ? scatterAxisAngle + outsideFanOffset(targetIds.length, targetIds.length+1, fanStep) + (rng()-0.5)*fanJitter
+        : scatterAxisAngle + Math.PI*0.82 + (rng()-0.5)*0.34;
 
       const metric = targeted
         ? outsideMin + (outsideMax-outsideMin)*(0.45+0.55*rng())
         : 0.26 + rng()*0.14;
 
-      const targetPosition = chooseSeparatedWhiteMetricPoint(
+      let targetPosition = chooseSeparatedWhiteMetricPoint(
         angle, metric, targeted?0.14:0.135,
-        usedLandingPoints, targeted ? minSep*1.15 : minSep*1.20, rng, !targeted
+        usedLandingPoints, targeted ? minSep*1.20 : minSep*1.20, rng, !targeted
       );
+      if (targeted) targetPosition = keepWorldPointInsideScreen(targetPosition, angle, metric, 0.14, rng);
       usedLandingPoints.push(targetPosition);
 
       flightPlan.push({
@@ -1794,7 +1814,7 @@
   }
 
   function finalizeScenarioVisual() {
-    // v0.12.2: final positions were chosen BEFORE SAKA launched.
+    // v0.12.3: final positions were chosen BEFORE SAKA launched.
     // Never rearrange anything after the pieces have landed.
     freezeRoundPhysics();
   }
@@ -1820,7 +1840,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.12.2] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.3] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -2040,7 +2060,7 @@
 
     // Keep the visible default trajectory before the user touches SAKA.
     const defaultGeo = aimGeometry();
-    const defaultPoint = { x: defaultGeo.center.x, z: defaultGeo.center.z };
+    const defaultPoint = snapLandingPointToNearestChuko({ x: defaultGeo.center.x, z: defaultGeo.center.z });
     aimState.power = 0.58;
     aimState.guideDir = defaultGeo.toCenter;
     aimState.targetPoint = defaultPoint;
@@ -2048,7 +2068,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.12.2] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.3] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2227,7 +2247,10 @@
   }
 
   function correctFinalApproachToAim() {
-    if (!throwState.active || pileReleasedForThrow || !throwState.targetPoint || !saka || !sakaAggregate?.body) return;
+    const deterministicRound = scenarioRuntime.active && C.game?.deterministicScatter !== false;
+    if (!throwState.active || !throwState.targetPoint || !saka || !sakaAggregate?.body) return;
+    if (throwState.impactBoosted) return;
+    if (pileReleasedForThrow && !deterministicRound) return;
     const velocity = readLinearVelocity(sakaAggregate.body);
     if (velocity.y >= -0.05) return;
 
@@ -2370,7 +2393,10 @@
 
     // v0.5 keeps the precise v0.4.2 camera-aware 2D aiming disc.
     // This removes the old non-linear ray/power mapping and fixes horizontal mirroring.
-    const targetPoint = targetPointFromDrag(dx, dy, maxPull);
+    const rawTargetPoint = targetPointFromDrag(dx, dy, maxPull);
+    const targetPoint = C.game?.sakaAimSnapLive !== false
+      ? snapLandingPointToNearestChuko(rawTargetPoint)
+      : rawTargetPoint;
     const geo = aimGeometry();
     const guideDir = normalize2(
       targetPoint.x - geo.origin.x,
@@ -2460,7 +2486,7 @@
         aimState.pointerId = null;
         { const s = throwStartPoint(); saka?.position.set(s.x, s.y, s.z); }
         const geo = aimGeometry();
-        const defaultPoint = { x: geo.center.x, z: geo.center.z };
+        const defaultPoint = snapLandingPointToNearestChuko({ x: geo.center.x, z: geo.center.z });
         aimState.targetPoint = defaultPoint;
         updateAimVisuals(defaultPoint, 0.58);
         if (ui.aimPower) ui.aimPower.hidden = true;
@@ -2533,22 +2559,10 @@
       landingPoint = actual.point;
     }
 
-    // Manual aim must still land inside the dense pile contact zone.
-    {
-      const geo = aimGeometry();
-      const contactRadius = geo.radius * Math.max(0.30, Math.min(0.95, Number(C.throw.contactRadiusFactor || 0.50)));
-      const dx = landingPoint.x - geo.center.x;
-      const dz = landingPoint.z - geo.center.z;
-      const r = Math.hypot(dx,dz);
-      if (r > contactRadius) {
-        const inv = 1 / Math.max(1e-6,r);
-        landingPoint = {x:geo.center.x + dx*inv*contactRadius, z:geo.center.z + dz*inv*contactRadius};
-      }
-    }
-
-    // Guarantee that SAKA's ballistic contact point coincides with at least one
-    // actual chükö position. This avoids visually dropping into an empty gap.
-    landingPoint = snapLandingPointToNearestChuko(landingPoint);
+    // The visible target marker is authoritative. For manual aim it has already
+    // been snapped LIVE to a real chükö, so the ballistic endpoint must stay
+    // exactly on that visible marker. Auto/tap throws are snapped here once.
+    if (!options.manual) landingPoint = snapLandingPointToNearestChuko(landingPoint);
 
     // Scenario result is planned BEFORE SAKA starts flying: exact final landing
     // points for all 12 chükö and KHAN are fixed now and will not change later.
@@ -2626,14 +2640,19 @@
     const dxPre = saka.position.x - tp.x;
     const dzPre = saka.position.z - tp.z;
     const distPre = Math.hypot(dxPre, dzPre);
-    const triggerHeight = Number(cfg.triggerHeight || 0.72);
-    const triggerRadius = Number(cfg.triggerRadius || 0.48);
+    const deterministicRound = scenarioRuntime.active && C.game?.deterministicScatter !== false;
+    const triggerHeight = deterministicRound
+      ? Number(C.game?.sakaDeterministicContactTriggerY || 0.43)
+      : Number(cfg.triggerHeight || 0.72);
+    const triggerRadius = deterministicRound
+      ? Number(C.game?.sakaDeterministicContactRadius || 0.10)
+      : Number(cfg.triggerRadius || 0.48);
 
     // Safety fallback: if the pile has not yet been released but SAKA is already
     // descending into the real impact zone, release it right now so the scatter
     // can still happen in this same frame.
     if (!pileReleasedForThrow && saka.position.y <= triggerHeight && distPre <= triggerRadius) {
-      if (!(scenarioRuntime.active && C.game?.deterministicScatter !== false)) setPileBodiesMotionDynamic();
+      if (!deterministicRound) setPileBodiesMotionDynamic();
       pileReleasedForThrow = true;
     }
     if (!pileReleasedForThrow) return;
@@ -2642,7 +2661,7 @@
     triggerImpactFx(tp, throwState.power || 0.6);
     if (aimTarget) aimTarget.setEnabled(false);
 
-    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) {
+    if (deterministicRound) {
       // No post-impact steering and no late correction. The whole scatter uses
       // the precomputed landing plan prepared before the throw.
       startScenarioScatter();
