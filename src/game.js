@@ -95,9 +95,13 @@
     seed: '',
     impactAt: 0,
     targetsLockedAtImpact: false,
+    flightPlan: [],
+    scatterStartedAt: 0,
+    scatterActive: false,
+    scatterComplete: false,
     active: false
   };
-  // v0.11.4: dynamic round objects are created once and reused on every reset.
+  // v0.12.0: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -212,6 +216,12 @@
     // changing the final landing point.
     if (saka.position.y > releaseY || horizontalError > maxError) return;
 
+    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) {
+      // Scenario rounds keep the pile static until the single deterministic
+      // scatter animation starts at contact.
+      pileReleasedForThrow = true;
+      return;
+    }
     setPileBodiesMotionDynamic();
     pileReleasedForThrow = true;
   }
@@ -261,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.11.4] GLB bounds', {
+    console.info('[CHUKO 0.12.0] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -996,7 +1006,7 @@
   }
 
   function createEnvironment() {
-    // v0.11.4: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.12.0: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1130,7 +1140,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.11.4 pooling/reset -------------------------------------------------------
+  // v0.12.0 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1299,6 +1309,10 @@
     scenarioRuntime.seed = seed;
     scenarioRuntime.impactAt = 0;
     scenarioRuntime.targetsLockedAtImpact = false;
+    scenarioRuntime.flightPlan = [];
+    scenarioRuntime.scatterStartedAt = 0;
+    scenarioRuntime.scatterActive = false;
+    scenarioRuntime.scatterComplete = false;
     scenarioRuntime.active = true;
   }
 
@@ -1312,6 +1326,10 @@
     scenarioRuntime.seed = '';
     scenarioRuntime.impactAt = 0;
     scenarioRuntime.targetsLockedAtImpact = false;
+    scenarioRuntime.flightPlan = [];
+    scenarioRuntime.scatterStartedAt = 0;
+    scenarioRuntime.scatterActive = false;
+    scenarioRuntime.scatterComplete = false;
     scenarioRuntime.active = false;
   }
 
@@ -1384,41 +1402,202 @@
     }
   }
 
-  function selectScenarioTargetsAtImpact(tp) {
-    if (!scenarioRuntime.active || !scenarioRuntime.plan || scenarioRuntime.targetsLockedAtImpact) return;
+  function worldPointForWhiteMetric(angle, targetMetric, y=0.11) {
+    let lo = 0.06;
+    let hi = 3.20;
+    let best = new BABYLON.Vector3(Math.cos(angle)*1.5, y, Math.sin(angle)*1.5);
+    let bestDiff = Number.POSITIVE_INFINITY;
 
-    const count = Math.max(0, Math.min(C.pile.chukoCount, Number(scenarioRuntime.plan.regular || 0)));
-    const rng = seededRng(`${scenarioRuntime.seed}|impact-targets`);
+    for (let i=0;i<28;i++) {
+      const r = (lo+hi)*0.5;
+      const probe = new BABYLON.Vector3(Math.cos(angle)*r, y, Math.sin(angle)*r);
+      const metric = whiteRingMetricForWorld(probe);
+      if (metric == null || !Number.isFinite(metric)) break;
+      const diff = Math.abs(metric-targetMetric);
+      if (diff < bestDiff) { bestDiff = diff; best = probe; }
+      if (metric < targetMetric) lo = r;
+      else hi = r;
+    }
+    return best;
+  }
+
+  function deterministicLandingRotation(seed, index, isKhan=false) {
+    const rng = seededRng(`${seed}|rot|${index}|${isKhan?'K':'C'}`);
+    return BABYLON.Quaternion.FromEulerAngles(
+      (rng()-0.5) * 1.85,
+      rng() * Math.PI * 2,
+      (rng()-0.5) * 1.85
+    );
+  }
+
+  function prepareScenarioLandingPlan(tp) {
+    if (!scenarioRuntime.active || !scenarioRuntime.plan || !roundPool.initialized) return;
+
+    const plan = scenarioRuntime.plan;
+    const count = Math.max(0, Math.min(C.pile.chukoCount, Number(plan.regular || 0)));
+    const rng = seededRng(`${scenarioRuntime.seed}|landing-plan|${tp.x.toFixed(3)}|${tp.z.toFixed(3)}`);
     const pileX = Number(tuning.pileX || 0);
     const pileZ = Number(tuning.pileZ || 0);
 
-    const scored = roundPool.chukos.map((item,index) => {
-      const x = item?.mesh?.position?.x ?? 0;
-      const z = item?.mesh?.position?.z ?? 0;
-      const dist = Math.hypot(x - tp.x, z - tp.z);
-      return { index, item, score: dist + rng()*0.045 };
-    }).sort((a,b)=>a.score-b.score);
-
-    const ids = scored.slice(0,count).map(v=>v.index);
-    const directions = new Map();
-    ids.forEach((id, order) => {
-      const item = roundPool.chukos[id];
-      let dx = (item?.mesh?.position?.x ?? pileX) - pileX;
-      let dz = (item?.mesh?.position?.z ?? pileZ) - pileZ;
-      let len = Math.hypot(dx,dz);
-      if (len < 0.12) {
-        const angle = -Math.PI*0.85 + ((order+1)/(ids.length+1))*Math.PI*1.70 + (rng()-0.5)*0.18;
-        directions.set(id, angle);
-      } else {
-        directions.set(id, Math.atan2(dz,dx) + (rng()-0.5)*0.12);
-      }
-    });
-
-    scenarioRuntime.targetIds = new Set(ids);
-    scenarioRuntime.targetDirections = directions;
+    // Select the actual chükö closest to the chosen SAKA contact point BEFORE the throw starts.
+    const scored = roundPool.chukos.map((item,index)=>({
+      index,
+      item,
+      score: Math.hypot((item?.mesh?.position?.x||0)-tp.x,(item?.mesh?.position?.z||0)-tp.z) + rng()*0.025
+    })).sort((a,b)=>a.score-b.score);
+    const targetIds = scored.slice(0,count).map(v=>v.index);
+    scenarioRuntime.targetIds = new Set(targetIds);
     scenarioRuntime.outIds = new Set();
     scenarioRuntime.khanOut = false;
     scenarioRuntime.targetsLockedAtImpact = true;
+
+    const flightPlan = [];
+    const insideIds = [...Array(C.pile.chukoCount).keys()].filter(i=>!scenarioRuntime.targetIds.has(i));
+    const impactAngle = Math.atan2(tp.z-pileZ,tp.x-pileX);
+
+    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.44);
+    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.82);
+    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.18);
+    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 1.30);
+    const durMin = Number(C.game?.scatterDurationMinMs || 430);
+    const durMax = Number(C.game?.scatterDurationMaxMs || 690);
+    const delayMax = Number(C.game?.scatterDelayMaxMs || 105);
+
+    // OUT slots fan away from the impact direction; this count is exactly the scenario count.
+    targetIds.forEach((id,order)=>{
+      const item = roundPool.chukos[id];
+      if (!item?.mesh) return;
+      const spread = targetIds.length <= 1 ? 0 : (order-(targetIds.length-1)/2) * 0.34;
+      const angle = impactAngle + spread + (rng()-0.5)*0.12;
+      const metric = outsideMin + (outsideMax-outsideMin)*rng();
+      const y = 0.095 + rng()*0.025;
+      const targetPosition = worldPointForWhiteMetric(angle,metric,y);
+      const distToImpact = Math.hypot(item.mesh.position.x-tp.x,item.mesh.position.z-tp.z);
+      flightPlan.push({
+        item,index:id,isKhan:false,targeted:true,targetPosition,
+        targetRotation:deterministicLandingRotation(scenarioRuntime.seed,id,false),
+        delay:Math.min(delayMax,distToImpact*80 + rng()*28),
+        duration:durMin + (durMax-durMin)*(0.65+rng()*0.35),
+        arc:Number(C.game?.scatterArcOutsideMin||0.26) + (Number(C.game?.scatterArcOutsideMax||0.54)-Number(C.game?.scatterArcOutsideMin||0.26))*rng()
+      });
+      scenarioRuntime.targetDirections.set(id,angle);
+    });
+
+    // IN slots are decided before launch too. They are distributed safely inside the white ring.
+    insideIds.forEach((id,order)=>{
+      const item = roundPool.chukos[id];
+      if (!item?.mesh) return;
+      const n = Math.max(1,insideIds.length);
+      const base = -Math.PI + (order+0.5)*(Math.PI*2/n);
+      const angle = base + (rng()-0.5)*0.20;
+      const band = order % 3;
+      const bandT = [0.18,0.54,0.88][band];
+      const metric = insideMin + (insideMax-insideMin)*bandT + (rng()-0.5)*0.035;
+      const y = 0.090 + rng()*0.028;
+      const targetPosition = worldPointForWhiteMetric(angle,metric,y);
+      const distToImpact = Math.hypot(item.mesh.position.x-tp.x,item.mesh.position.z-tp.z);
+      flightPlan.push({
+        item,index:id,isKhan:false,targeted:false,targetPosition,
+        targetRotation:deterministicLandingRotation(scenarioRuntime.seed,id,false),
+        delay:Math.min(delayMax,18 + distToImpact*72 + rng()*30),
+        duration:durMin + (durMax-durMin)*(0.25+rng()*0.45),
+        arc:Number(C.game?.scatterArcInsideMin||0.12) + (Number(C.game?.scatterArcInsideMax||0.30)-Number(C.game?.scatterArcInsideMin||0.12))*rng()
+      });
+    });
+
+    // KHAN: normally stays close to centre; only FIVE_KHAN places it outside.
+    if (roundPool.khan?.mesh) {
+      const targeted = !!plan.khan;
+      const angle = targeted ? impactAngle + 0.24 + (rng()-0.5)*0.12 : Math.atan2(roundPool.khan.mesh.position.z-pileZ,roundPool.khan.mesh.position.x-pileX || 0.001);
+      const metric = targeted
+        ? outsideMin + (outsideMax-outsideMin)*(0.55+0.45*rng())
+        : 0.22 + rng()*0.10;
+      const targetPosition = worldPointForWhiteMetric(angle,metric,targeted?0.14:0.135);
+      flightPlan.push({
+        item:roundPool.khan,index:-1,isKhan:true,targeted,targetPosition,
+        targetRotation:deterministicLandingRotation(scenarioRuntime.seed,99,true),
+        delay:targeted ? 25+rng()*40 : 55+rng()*45,
+        duration:targeted ? durMax*0.95 : durMin*0.85,
+        arc:targeted ? Number(C.game?.scatterArcOutsideMax||0.54)*0.92 : Number(C.game?.scatterArcInsideMin||0.12)*0.85
+      });
+    }
+
+    scenarioRuntime.flightPlan = flightPlan;
+    scenarioRuntime.scatterStartedAt = 0;
+    scenarioRuntime.scatterActive = false;
+    scenarioRuntime.scatterComplete = false;
+  }
+
+  function startScenarioScatter() {
+    if (!scenarioRuntime.active || !scenarioRuntime.flightPlan.length || scenarioRuntime.scatterActive || scenarioRuntime.scatterComplete) return;
+    const now = performance.now();
+    scenarioRuntime.scatterStartedAt = now;
+    scenarioRuntime.scatterActive = true;
+    scenarioRuntime.impactAt = now;
+    scenarioRuntime.outIds = new Set();
+    scenarioRuntime.khanOut = false;
+
+    scenarioRuntime.flightPlan.forEach(entry=>{
+      const item=entry.item;
+      if (!item?.mesh || !item?.aggregate?.body) return;
+      entry.startPosition=item.mesh.position.clone();
+      entry.startRotation=item.mesh.rotationQuaternion ? item.mesh.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
+      try {
+        item.aggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
+        item.aggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
+        item.aggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+        item.aggregate.body.disablePreStep=false;
+      } catch (_) {}
+    });
+  }
+
+  function updateScenarioScatterAnimation() {
+    if (!scenarioRuntime.scatterActive || !scenarioRuntime.flightPlan.length) return;
+    const elapsed = performance.now()-scenarioRuntime.scatterStartedAt;
+    let allDone=true;
+
+    scenarioRuntime.flightPlan.forEach(entry=>{
+      const item=entry.item;
+      if (!item?.mesh || !entry.startPosition) return;
+      const local=(elapsed-entry.delay)/Math.max(1,entry.duration);
+      if (local<0) { allDone=false; return; }
+      const t=Math.max(0,Math.min(1,local));
+      if (t<1) allDone=false;
+      const ease=1-Math.pow(1-t,3);
+      const start=entry.startPosition;
+      const end=entry.targetPosition;
+      item.mesh.position.x=start.x+(end.x-start.x)*ease;
+      item.mesh.position.z=start.z+(end.z-start.z)*ease;
+      item.mesh.position.y=start.y+(end.y-start.y)*ease+Math.sin(Math.PI*t)*entry.arc;
+      if (!item.mesh.rotationQuaternion) item.mesh.rotationQuaternion=BABYLON.Quaternion.Identity();
+      BABYLON.Quaternion.SlerpToRef(entry.startRotation,entry.targetRotation,ease,item.mesh.rotationQuaternion);
+      item.mesh.computeWorldMatrix(true);
+    });
+
+    if (!allDone) return;
+
+    scenarioRuntime.flightPlan.forEach(entry=>{
+      const item=entry.item;
+      if (!item?.mesh || !item?.aggregate?.body) return;
+      item.mesh.position.copyFrom(entry.targetPosition);
+      item.mesh.rotationQuaternion=entry.targetRotation.clone();
+      item.mesh.computeWorldMatrix(true);
+      try {
+        item.aggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
+        item.aggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
+        item.aggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+        item.aggregate.body.disablePreStep=true;
+      } catch (_) {}
+      if (entry.isKhan) scenarioRuntime.khanOut=!!entry.targeted;
+      else if (entry.targeted) scenarioRuntime.outIds.add(entry.index);
+    });
+
+    // SAKA also stops once the planned scatter has visibly completed. No later drift.
+    freezeItemAtCurrentPosition(roundPool.saka);
+    scenarioRuntime.scatterActive=false;
+    scenarioRuntime.scatterComplete=true;
+    roundPhysicsFrozen=true;
+    syncAllGlbVisuals();
   }
 
   function computePhysicalResult() {
@@ -1503,66 +1682,6 @@
     } catch (_) {}
   }
 
-  function placeItemOnWhiteMetric(item, targetMetric, outward = false) {
-    if (!item?.mesh || !item?.aggregate?.body) return false;
-
-    const mesh = item.mesh;
-    const body = item.aggregate.body;
-    const y = Math.max(0.08, Math.min(mesh.position.y, 0.42));
-    const angle = Math.atan2(mesh.position.z, mesh.position.x);
-
-    // Search along the same world ray until the projected point lands on the
-    // desired visible white-ring metric.
-    let lo = 0.10;
-    let hi = 3.20;
-    let bestR = Math.hypot(mesh.position.x, mesh.position.z) || (outward ? 2.55 : 1.70);
-    let bestDiff = Infinity;
-
-    for (let i = 0; i < 26; i++) {
-      const mid = (lo + hi) * 0.5;
-      const probe = new BABYLON.Vector3(Math.cos(angle) * mid, y, Math.sin(angle) * mid);
-      const metric = whiteRingMetricForWorld(probe);
-      if (metric == null) break;
-      const diff = Math.abs(metric - targetMetric);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestR = mid;
-      }
-      if (metric < targetMetric) lo = mid;
-      else hi = mid;
-    }
-
-    try {
-      body.setLinearVelocity(BABYLON.Vector3.Zero());
-      body.setAngularVelocity(BABYLON.Vector3.Zero());
-      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
-      mesh.position.set(Math.cos(angle) * bestR, y, Math.sin(angle) * bestR);
-      mesh.computeWorldMatrix(true);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function enforceScenarioVisualAtRest() {
-    if (!scenarioRuntime.active || !scenarioRuntime.plan) return;
-
-    const insideMetric = Number(C.game?.scenarioSettleInsideMetric || 0.92);
-    const outsideMetric = Number(C.game?.scenarioSettleOutsideMetric || 1.10);
-
-    roundPool.chukos.forEach((item, index) => {
-      if (!item?.mesh || !item?.aggregate?.body) return;
-      const targeted = scenarioRuntime.targetIds.has(index);
-      placeItemOnWhiteMetric(item, targeted ? outsideMetric : insideMetric, targeted);
-      if (targeted) scenarioRuntime.outIds.add(index);
-    });
-
-    if (roundPool.khan?.mesh && roundPool.khan?.aggregate?.body) {
-      placeItemOnWhiteMetric(roundPool.khan, scenarioRuntime.khanTarget ? outsideMetric : insideMetric, !!scenarioRuntime.khanTarget);
-      scenarioRuntime.khanOut = !!scenarioRuntime.khanTarget;
-    }
-  }
-
   function freezeRoundPhysics() {
     if (roundPhysicsFrozen) return;
     roundPhysicsFrozen = true;
@@ -1570,9 +1689,8 @@
   }
 
   function finalizeScenarioVisual() {
-    // Single final settle correction: make the picture match the scenario that
-    // the player sees on screen, then freeze immediately so nothing moves again.
-    enforceScenarioVisualAtRest();
+    // v0.12.0: final positions were chosen BEFORE SAKA launched.
+    // Never rearrange anything after the pieces have landed.
     freezeRoundPhysics();
   }
 
@@ -1597,7 +1715,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.11.4] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.0] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -1744,6 +1862,10 @@
     resetTimer = 0;
     pileReleasedForThrow = false;
     roundPhysicsFrozen = false;
+    scenarioRuntime.scatterStartedAt = 0;
+    scenarioRuntime.scatterActive = false;
+    scenarioRuntime.scatterComplete = false;
+    scenarioRuntime.flightPlan = [];
     ensureRoundPool();
 
     thrown = false;
@@ -1821,7 +1943,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.11.4] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.0] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2299,6 +2421,12 @@
       }
     }
 
+    // Scenario result is planned BEFORE SAKA starts flying: exact final landing
+    // points for all 12 chükö and KHAN are fixed now and will not change later.
+    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) {
+      prepareScenarioLandingPlan(landingPoint);
+    }
+
     const target = new BABYLON.Vector3(landingPoint.x, ballisticTargetYForAim(), landingPoint.z);
     const s0 = throwStartPoint();
     const start = new BABYLON.Vector3(s0.x, s0.y, s0.z);
@@ -2376,18 +2504,23 @@
     // descending into the real impact zone, release it right now so the scatter
     // can still happen in this same frame.
     if (!pileReleasedForThrow && saka.position.y <= triggerHeight && distPre <= triggerRadius) {
-      setPileBodiesMotionDynamic();
+      if (!(scenarioRuntime.active && C.game?.deterministicScatter !== false)) setPileBodiesMotionDynamic();
       pileReleasedForThrow = true;
     }
     if (!pileReleasedForThrow) return;
 
-    // The pile is now dynamic at the real moment of impact, so apply a controlled
-    // boost immediately in the same render frame.
     throwState.impactBoosted = true;
-    if (scenarioRuntime.active && !scenarioRuntime.impactAt) scenarioRuntime.impactAt = performance.now();
-    if (scenarioRuntime.active) selectScenarioTargetsAtImpact(tp);
     triggerImpactFx(tp, throwState.power || 0.6);
     if (aimTarget) aimTarget.setEnabled(false);
+
+    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) {
+      // No post-impact steering and no late correction. The whole scatter uses
+      // the precomputed landing plan prepared before the throw.
+      startScenarioScatter();
+      return;
+    }
+
+    // Physics-only fallback keeps the old Havok impact boost.
     const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
     const radialSpeed = Math.max(0, Number(cfg.radialSpeed || 4.35));
     const forwardSpeed = Math.max(0, Number(cfg.forwardSpeed || 1.15));
@@ -2632,6 +2765,7 @@
 
   function containScatterInView() {
     if (roundPhysicsFrozen || !roundPool.initialized || !thrown) return;
+    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) return;
 
     // IMPORTANT: only chükö and KHAN are constrained here. SAKA is never touched,
     // so its ballistic trajectory and Havok flight remain exactly as in v0.8.19.
@@ -2695,81 +2829,8 @@
   }
 
   function enforceScenarioDuringScatter() {
-    if (!scenarioRuntime.active || !scenarioRuntime.plan || !thrown || !throwState.impactBoosted || roundPhysicsFrozen) return;
-
-    const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
-    const controlMs = Number(C.game?.scenarioForceMs || 420);
-    const freezeMs = Number(C.game?.scenarioFreezeMs || 950);
-
-    if (elapsed >= freezeMs) {
-      freezeRoundPhysics();
-      return;
-    }
-
-    // Scenario steering exists only during the initial scatter. After this window
-    // Havok settles naturally and nothing is allowed to "wake up" later.
-    if (elapsed > controlMs) return;
-
-    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.12);
-    const pushStartMs = Number(C.game?.scenarioPushStartMs || 30);
-
-    roundPool.chukos.forEach((item,index)=>{
-      if (!item?.mesh || !item?.aggregate?.body) return;
-      const targeted = scenarioRuntime.targetIds.has(index);
-
-      if (!targeted) {
-        keepScenarioNonTargetInside(item);
-        return;
-      }
-
-      if (scenarioRuntime.outIds.has(index)) return;
-      if (markScenarioOut(item,index,false)) return;
-      if (elapsed < pushStartMs) return;
-
-      const angle = scenarioRuntime.targetDirections.get(index) ?? Math.atan2(item.mesh.position.z,item.mesh.position.x);
-      const dx = Math.cos(angle), dz = Math.sin(angle);
-      const vel = readLinearVelocity(item.aggregate.body);
-      const speed = Math.hypot(vel.x,vel.y,vel.z);
-      if (elapsed > 220 && speed < 0.10) return;
-      const outward = vel.x*dx + vel.z*dz;
-      const progress = Math.max(0,Math.min(1,(elapsed-pushStartMs)/Math.max(1,controlMs-pushStartMs)));
-      const desired = 2.35 + progress*1.15;
-      if (outward < desired) {
-        const gain = 0.20 + progress*0.14;
-        try {
-          item.aggregate.body.setLinearVelocity(new BABYLON.Vector3(
-            vel.x + dx*(desired-outward)*gain,
-            Math.min(0.30,Math.max(vel.y,0.06)),
-            vel.z + dz*(desired-outward)*gain
-          ));
-        } catch (_) {}
-      }
-    });
-
-    const khan = roundPool.khan;
-    if (khan?.mesh && khan?.aggregate?.body) {
-      if (!scenarioRuntime.khanTarget) {
-        keepScenarioNonTargetInside(khan);
-      } else if (!scenarioRuntime.khanOut) {
-        if (!markScenarioOut(khan,-1,true) && elapsed >= pushStartMs) {
-          const pileX = Number(tuning.pileX||0), pileZ = Number(tuning.pileZ||0);
-          let dx = khan.mesh.position.x-pileX, dz = khan.mesh.position.z-pileZ;
-          const len = Math.hypot(dx,dz)||1; dx/=len; dz/=len;
-          const vel = readLinearVelocity(khan.aggregate.body);
-          const speed = Math.hypot(vel.x,vel.y,vel.z);
-          if (elapsed > 220 && speed < 0.10) return;
-          const outward = vel.x*dx+vel.z*dz;
-          const progress = Math.max(0,Math.min(1,(elapsed-pushStartMs)/Math.max(1,controlMs-pushStartMs)));
-          const desired = 2.30+progress*1.10;
-          if (outward < desired) {
-            try { khan.aggregate.body.setLinearVelocity(new BABYLON.Vector3(
-              vel.x+dx*(desired-outward)*(0.20+progress*0.12),
-              Math.min(0.28,Math.max(vel.y,0.05)),
-              vel.z+dz*(desired-outward)*(0.20+progress*0.12)
-            )); } catch (_) {}
-          }
-        }
-      }
+    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) {
+      updateScenarioScatterAnimation();
     }
   }
 

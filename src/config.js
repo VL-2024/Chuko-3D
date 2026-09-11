@@ -1,5 +1,5 @@
 window.CHUKO3D_CONFIG = Object.freeze({
-  version: '0.11.4',
+  version: '0.12.0',
   sourceMechanic: 'CHUKO v20.61',
 
   field: {
@@ -156,6 +156,18 @@ window.CHUKO3D_CONFIG = Object.freeze({
     scenarioInsideSoftMetric: 0.74,
     scenarioSettleInsideMetric: 0.92,
     scenarioSettleOutsideMetric: 1.10,
+    deterministicScatter: true,
+    scatterInsideMetricMin: 0.44,
+    scatterInsideMetricMax: 0.82,
+    scatterOutsideMetricMin: 1.18,
+    scatterOutsideMetricMax: 1.30,
+    scatterDurationMinMs: 430,
+    scatterDurationMaxMs: 690,
+    scatterDelayMaxMs: 105,
+    scatterArcInsideMin: 0.12,
+    scatterArcInsideMax: 0.30,
+    scatterArcOutsideMin: 0.26,
+    scatterArcOutsideMax: 0.54,
     scenarioInsideHardMetric: 0.90,
     scenarioOutMarkMetric: 1.12,
     scenarioOutFinalMetric: 1.18,
