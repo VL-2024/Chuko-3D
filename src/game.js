@@ -94,9 +94,10 @@
     khanOut: false,
     seed: '',
     impactAt: 0,
+    targetsLockedAtImpact: false,
     active: false
   };
-  // v0.11.2: dynamic round objects are created once and reused on every reset.
+  // v0.11.3: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -109,8 +110,9 @@
   const prestepRestoreQueue = [];
   const chukoClampPending = new Set();
   let sakaClampPending = false;
+  let roundPhysicsFrozen = false;
 
-  const TUNE_STORAGE_KEY = 'chuko3d-v0112-scenario-visual';
+  const TUNE_STORAGE_KEY = 'chuko3d-v0113-stable-game';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
     fieldBottom: 280,
@@ -122,7 +124,7 @@
     pileZ: -1.20,
     spreadX: 0.54,
     spreadZ: 0.68,
-    chukoScale: 0.80,
+    chukoScale: 0.60,
     cameraRadius: 8.95,
     cameraTargetX: 0.00,
     cameraTargetZ: 0.18,
@@ -172,7 +174,8 @@
     for (const item of roundPool.chukos) {
       if (item?.mesh?.scaling?.setAll) item.mesh.scaling.setAll(s);
     }
-    if (roundPool.khan?.mesh?.scaling?.setAll) roundPool.khan.mesh.scaling.setAll(s);
+    // chukoScale changes only the 12 regular chükö. KHAN keeps its own scale.
+    if (roundPool.khan?.mesh?.scaling?.setAll) roundPool.khan.mesh.scaling.setAll(1);
     applyAllVisualTuning();
     updatePileShadow();
   }
@@ -258,7 +261,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.11.2] GLB bounds', {
+    console.info('[CHUKO 0.11.3] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -278,7 +281,7 @@
       y: Number(tuning.khanModelY || 0),
       targetMax: Number(C.glb.khanTargetMax || 0.54),
       yaw: 0,
-      commonScale: pilePieceScale()
+      commonScale: 1
     };
     return {
       scale: Number(tuning.sakaModelScale || 1),
@@ -993,7 +996,7 @@
   }
 
   function createEnvironment() {
-    // v0.11.2: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.11.3: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1127,7 +1130,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.11.2 pooling/reset -------------------------------------------------------
+  // v0.11.3 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1295,6 +1298,7 @@
     scenarioRuntime.khanOut = false;
     scenarioRuntime.seed = seed;
     scenarioRuntime.impactAt = 0;
+    scenarioRuntime.targetsLockedAtImpact = false;
     scenarioRuntime.active = true;
   }
 
@@ -1307,6 +1311,7 @@
     scenarioRuntime.khanOut = false;
     scenarioRuntime.seed = '';
     scenarioRuntime.impactAt = 0;
+    scenarioRuntime.targetsLockedAtImpact = false;
     scenarioRuntime.active = false;
   }
 
@@ -1379,6 +1384,43 @@
     }
   }
 
+  function selectScenarioTargetsAtImpact(tp) {
+    if (!scenarioRuntime.active || !scenarioRuntime.plan || scenarioRuntime.targetsLockedAtImpact) return;
+
+    const count = Math.max(0, Math.min(C.pile.chukoCount, Number(scenarioRuntime.plan.regular || 0)));
+    const rng = seededRng(`${scenarioRuntime.seed}|impact-targets`);
+    const pileX = Number(tuning.pileX || 0);
+    const pileZ = Number(tuning.pileZ || 0);
+
+    const scored = roundPool.chukos.map((item,index) => {
+      const x = item?.mesh?.position?.x ?? 0;
+      const z = item?.mesh?.position?.z ?? 0;
+      const dist = Math.hypot(x - tp.x, z - tp.z);
+      return { index, item, score: dist + rng()*0.045 };
+    }).sort((a,b)=>a.score-b.score);
+
+    const ids = scored.slice(0,count).map(v=>v.index);
+    const directions = new Map();
+    ids.forEach((id, order) => {
+      const item = roundPool.chukos[id];
+      let dx = (item?.mesh?.position?.x ?? pileX) - pileX;
+      let dz = (item?.mesh?.position?.z ?? pileZ) - pileZ;
+      let len = Math.hypot(dx,dz);
+      if (len < 0.12) {
+        const angle = -Math.PI*0.85 + ((order+1)/(ids.length+1))*Math.PI*1.70 + (rng()-0.5)*0.18;
+        directions.set(id, angle);
+      } else {
+        directions.set(id, Math.atan2(dz,dx) + (rng()-0.5)*0.12);
+      }
+    });
+
+    scenarioRuntime.targetIds = new Set(ids);
+    scenarioRuntime.targetDirections = directions;
+    scenarioRuntime.outIds = new Set();
+    scenarioRuntime.khanOut = false;
+    scenarioRuntime.targetsLockedAtImpact = true;
+  }
+
   function computePhysicalResult() {
     // For LMS/scenario rounds, "выбито" is not inferred from a random final
     // Havok position. A piece is counted only after it is explicitly marked OUT.
@@ -1398,142 +1440,79 @@
     };
   }
 
-  function setFinalPiecePosition(item, radius, angle, keepDynamic=false) {
-    if (!item?.mesh || !item?.aggregate?.body) return;
+  function freezeItemAtCurrentPosition(item) {
+    if (!item?.aggregate?.body) return;
     const body = item.aggregate.body;
-    const mesh = item.mesh;
-    const rot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : BABYLON.Quaternion.Identity();
     try {
-      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
       body.setLinearVelocity(BABYLON.Vector3.Zero());
       body.setAngularVelocity(BABYLON.Vector3.Zero());
-      body.disablePreStep = false;
-      mesh.position.set(Math.cos(angle)*radius, Math.max(0.10, Math.min(mesh.position.y,0.34)), Math.sin(angle)*radius);
-      mesh.rotationQuaternion = rot;
-      mesh.computeWorldMatrix(true);
-      if (keepDynamic) {
-        scene.onAfterRenderObservable.addOnce(()=>{
-          try { body.disablePreStep=true; body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC); } catch (_) {}
-        });
-      }
+      body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
     } catch (_) {}
   }
 
-  function markScenarioOut(item, index, isKhan=false, force=false) {
+  function markScenarioOut(item, index, isKhan=false) {
     if (!item?.mesh || !item?.aggregate?.body || !scenarioRuntime.active) return false;
+    const metric = whiteRingMetricForItem(item);
+    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.12);
+    if (metric == null || metric < markMetric || item.mesh.position.y > 0.48) return false;
 
     if (isKhan) {
       if (scenarioRuntime.khanOut) return true;
-    } else if (scenarioRuntime.outIds.has(index)) {
-      return true;
-    }
-
-    const metric = whiteRingMetricForItem(item);
-    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.08);
-    if (!force && metric != null && metric < markMetric) return false;
-
-    const r = Math.hypot(item.mesh.position.x, item.mesh.position.z);
-    let angle;
-    if (isKhan) {
-      angle = r > 0.35 ? Math.atan2(item.mesh.position.z, item.mesh.position.x) : -0.78;
+      scenarioRuntime.khanOut = true;
     } else {
-      angle = r > 0.35
-        ? Math.atan2(item.mesh.position.z, item.mesh.position.x)
-        : (scenarioRuntime.targetDirections.get(index) ?? 0);
+      if (scenarioRuntime.outIds.has(index)) return true;
+      scenarioRuntime.outIds.add(index);
     }
 
-    const rng = seededRng(`${scenarioRuntime.seed}|out|${isKhan ? 'KHAN' : index}`);
-    const finalMetric = Number(C.game?.scenarioOutFinalMetric || 1.18) + rng() * 0.035;
-    if (!setPieceAtWhiteRingMetric(item, angle, finalMetric)) {
-      const fallbackRadius = Number(C.game?.scenarioOutRadius || 2.58) + rng() * 0.08;
-      setFinalPiecePosition(item, fallbackRadius, angle);
-    }
-
-    if (isKhan) scenarioRuntime.khanOut = true;
-    else scenarioRuntime.outIds.add(index);
+    // Once a selected piece has clearly landed outside, freeze it exactly where
+    // physics put it. No later teleport and no delayed second movement.
+    freezeItemAtCurrentPosition(item);
     return true;
   }
 
   function keepScenarioNonTargetInside(item) {
-    if (!item?.mesh || !item?.aggregate?.body) return;
-
+    if (!item?.mesh || !item?.aggregate?.body || roundPhysicsFrozen) return;
     const metric = whiteRingMetricForItem(item);
     if (metric == null) return;
 
-    const safeMetric = Number(C.game?.scenarioInsideMetric || 0.74);
-    const softMetric = Number(C.game?.scenarioInsideSoftMetric || 0.82);
-    const hardMetric = Number(C.game?.scenarioInsideHardMetric || 0.92);
+    const softMetric = Number(C.game?.scenarioInsideSoftMetric || 0.78);
     if (metric <= softMetric) return;
 
-    const body = item.aggregate.body;
     const mesh = item.mesh;
+    const body = item.aggregate.body;
     const r = Math.hypot(mesh.position.x, mesh.position.z);
     const inv = 1 / Math.max(1e-6, r || 1);
     const nx = mesh.position.x * inv;
     const nz = mesh.position.z * inv;
-    const angle = Math.atan2(mesh.position.z, mesh.position.x);
-
-    if (metric >= hardMetric) {
-      if (!setPieceAtWhiteRingMetric(item, angle, safeMetric, true)) {
-        clampChukoInsideView(item, nx, nz, Number(C.game?.scenarioInRadius || 1.84));
-      }
-      return;
-    }
-
     const vel = readLinearVelocity(body);
-    const inwardGain = 0.22 + Math.min(0.28, (metric - softMetric) * 1.8);
+    const speed = Math.hypot(vel.x,vel.y,vel.z);
+    const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
+    if (elapsed > 260 && speed < 0.10) return;
+    const outward = vel.x*nx + vel.z*nz;
+    const over = Math.max(0, metric-softMetric);
+    const pull = 0.34 + Math.min(1.10, over*3.6);
+
+    let vx = vel.x*0.78 - nx*pull;
+    let vz = vel.z*0.78 - nz*pull;
+    if (outward > 0) {
+      vx -= nx*outward*1.45;
+      vz -= nz*outward*1.45;
+    }
     try {
-      body.setLinearVelocity(new BABYLON.Vector3(
-        vel.x - nx * inwardGain,
-        Math.min(vel.y, 0.22),
-        vel.z - nz * inwardGain
-      ));
+      body.setLinearVelocity(new BABYLON.Vector3(vx, Math.min(vel.y,0.20), vz));
     } catch (_) {}
   }
 
-  function forceScenarioCompletion() {
-    if (!scenarioRuntime.active || !scenarioRuntime.plan) return;
-
-    const safeMetric = Number(C.game?.scenarioInsideMetric || 0.74);
-    const rng = seededRng(`${scenarioRuntime.seed}|force-final`);
-
-    roundPool.chukos.forEach((item, index) => {
-      const targeted = scenarioRuntime.targetIds.has(index);
-      if (targeted) {
-        markScenarioOut(item, index, false, true);
-      } else if (item?.mesh) {
-        const metric = whiteRingMetricForItem(item);
-        if (metric == null || metric > safeMetric) {
-          const angle = Math.atan2(item.mesh.position.z, item.mesh.position.x);
-          const finalMetric = Math.max(0.60, safeMetric - 0.03 - rng() * 0.05);
-          if (!setPieceAtWhiteRingMetric(item, angle, finalMetric)) {
-            setFinalPiecePosition(item, Number(C.game?.scenarioInRadius || 1.84) - 0.08, angle);
-          }
-        }
-      }
-    });
-
-    if (roundPool.khan?.mesh) {
-      if (scenarioRuntime.khanTarget) {
-        markScenarioOut(roundPool.khan, -1, true, true);
-      } else {
-        const metric = whiteRingMetricForItem(roundPool.khan);
-        if (metric == null || metric > safeMetric - 0.03) {
-          const angle = Math.atan2(roundPool.khan.mesh.position.z, roundPool.khan.mesh.position.x);
-          if (!setPieceAtWhiteRingMetric(roundPool.khan, angle, safeMetric - 0.08)) {
-            setFinalPiecePosition(roundPool.khan, Number(C.game?.scenarioInRadius || 1.84) - 0.12, angle);
-          }
-        }
-      }
-    }
-
-    syncAllGlbVisuals();
+  function freezeRoundPhysics() {
+    if (roundPhysicsFrozen) return;
+    roundPhysicsFrozen = true;
+    [...roundPool.chukos, roundPool.khan, roundPool.saka].filter(Boolean).forEach(freezeItemAtCurrentPosition);
   }
 
   function finalizeScenarioVisual() {
-    // Same principle as v20.61 forceTargetsOut(): the scenario is authoritative.
-    // At settlement there must be exactly N regular OUT pieces (+ KHAN if required).
-    forceScenarioCompletion();
+    // Important: never move pieces at settlement. v0.11.2 could reposition
+    // already stopped objects here, which looked like a second unexplained move.
+    freezeRoundPhysics();
   }
 
   function showGameResult() {
@@ -1557,7 +1536,7 @@
     }
 
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.11.2] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.11.3] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -1703,6 +1682,7 @@
     window.clearTimeout(resetTimer);
     resetTimer = 0;
     pileReleasedForThrow = false;
+    roundPhysicsFrozen = false;
     ensureRoundPool();
 
     thrown = false;
@@ -1748,7 +1728,7 @@
     applyPilePieceScale();
     queueBodyTransformReset(
       roundPool.khan,
-      new BABYLON.Vector3(Number(tuning.pileX), kd.height * pileScale * 0.54, Number(tuning.pileZ) - 0.01),
+      new BABYLON.Vector3(Number(tuning.pileX), kd.height * 0.54, Number(tuning.pileZ) - 0.01),
       BABYLON.Quaternion.FromEulerAngles(
         (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
         0.58 + (Math.random() - 0.5) * C.pile.angleJitter * 0.45,
@@ -1780,7 +1760,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.11.2] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.11.3] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -2344,6 +2324,7 @@
     // boost immediately in the same render frame.
     throwState.impactBoosted = true;
     if (scenarioRuntime.active && !scenarioRuntime.impactAt) scenarioRuntime.impactAt = performance.now();
+    if (scenarioRuntime.active) selectScenarioTargetsAtImpact(tp);
     triggerImpactFx(tp, throwState.power || 0.6);
     if (aimTarget) aimTarget.setEnabled(false);
     const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
@@ -2372,7 +2353,7 @@
       const scenarioTarget = item.role === 'khan'
         ? scenarioRuntime.khanTarget
         : scenarioRuntime.targetIds.has(chukoIndex);
-      const scenarioFactor = scenarioRuntime.active ? (scenarioTarget ? 1.72 : 0.72) : 1.0;
+      const scenarioFactor = scenarioRuntime.active ? (scenarioTarget ? 2.40 : 0.22) : 1.0;
       const added = new BABYLON.Vector3(
         (radial.x * radialSpeed + forward.x * forwardSpeed + sideX * randomSpeed) * falloff * factor * scenarioFactor,
         liftSpeed * (0.55 + 0.45 * falloff) * factor * (scenarioTarget ? 1.10 : 0.78),
@@ -2388,6 +2369,39 @@
       ));
       affected++;
     });
+
+    if (scenarioRuntime.active && scenarioRuntime.plan) {
+      scenarioRuntime.targetIds.forEach(index => {
+        const item = roundPool.chukos[index];
+        if (!item?.aggregate?.body) return;
+        const angle = scenarioRuntime.targetDirections.get(index) ?? 0;
+        const dx = Math.cos(angle), dz = Math.sin(angle);
+        const vel = readLinearVelocity(item.aggregate.body);
+        const outward = vel.x*dx + vel.z*dz;
+        const desired = 3.05 + Math.max(0, 3-Number(scenarioRuntime.plan.regular||0))*0.10;
+        const add = Math.max(0, desired-outward);
+        try {
+          item.aggregate.body.setLinearVelocity(new BABYLON.Vector3(
+            vel.x + dx*add,
+            Math.max(vel.y, 0.28),
+            vel.z + dz*add
+          ));
+        } catch (_) {}
+      });
+
+      if (scenarioRuntime.khanTarget && roundPool.khan?.aggregate?.body) {
+        const body = roundPool.khan.aggregate.body;
+        const vel = readLinearVelocity(body);
+        const pileX = Number(tuning.pileX||0), pileZ = Number(tuning.pileZ||0);
+        let dx = roundPool.khan.mesh.position.x-pileX;
+        let dz = roundPool.khan.mesh.position.z-pileZ;
+        const len = Math.hypot(dx,dz) || 1;
+        dx/=len; dz/=len;
+        const outward = vel.x*dx+vel.z*dz;
+        const add = Math.max(0,2.90-outward);
+        try { body.setLinearVelocity(new BABYLON.Vector3(vel.x+dx*add,Math.max(vel.y,0.26),vel.z+dz*add)); } catch (_) {}
+      }
+    }
 
     ui.hint.textContent = affected
       ? `Контакт · затронуто ${affected} чүкө`
@@ -2495,34 +2509,8 @@
     return whiteRingMetricForWorld(item.mesh.getAbsolutePosition());
   }
 
-  function worldRadiusForWhiteRingMetric(angle, y, targetMetric) {
-    let lo = 0.02;
-    let hi = 3.35;
-    let best = 0.0;
-    for (let i = 0; i < 20; i++) {
-      const mid = (lo + hi) * 0.5;
-      const pos = new BABYLON.Vector3(Math.cos(angle) * mid, y, Math.sin(angle) * mid);
-      const metric = whiteRingMetricForWorld(pos);
-      if (metric == null) return null;
-      best = mid;
-      if (metric < targetMetric) lo = mid;
-      else hi = mid;
-    }
-    return best;
-  }
-
-  function setPieceAtWhiteRingMetric(item, angle, targetMetric, keepDynamic=false) {
-    if (!item?.mesh || !item?.aggregate?.body) return false;
-    const mesh = item.mesh;
-    const y = Math.max(0.10, Math.min(mesh.position.y, 0.34));
-    const radius = worldRadiusForWhiteRingMetric(angle, y, targetMetric);
-    if (!Number.isFinite(radius)) return false;
-    setFinalPiecePosition(item, radius, angle, keepDynamic);
-    return true;
-  }
-
   function containSakaInsidePlayCircle() {
-    if (!thrown || !saka || !sakaAggregate?.body || sakaClampPending) return;
+    if (roundPhysicsFrozen || !thrown || !saka || !sakaAggregate?.body || sakaClampPending) return;
 
     // Do not interfere with the high arc. Clamp only when SAKA is already near/after landing.
     if (saka.position.y > 0.72) return;
@@ -2582,7 +2570,7 @@
   }
 
   function containScatterInView() {
-    if (!roundPool.initialized || !thrown) return;
+    if (roundPhysicsFrozen || !roundPool.initialized || !thrown) return;
 
     // IMPORTANT: only chükö and KHAN are constrained here. SAKA is never touched,
     // so its ballistic trajectory and Havok flight remain exactly as in v0.8.19.
@@ -2646,48 +2634,51 @@
   }
 
   function enforceScenarioDuringScatter() {
-    if (!scenarioRuntime.active || !scenarioRuntime.plan || !thrown || !throwState.impactBoosted) return;
+    if (!scenarioRuntime.active || !scenarioRuntime.plan || !thrown || !throwState.impactBoosted || roundPhysicsFrozen) return;
 
     const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
-    const pushStartMs = Number(C.game?.scenarioPushStartMs || 180);
-    const forceMs = Number(C.game?.scenarioForceMs || 1150);
-    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.08);
+    const controlMs = Number(C.game?.scenarioForceMs || 420);
+    const freezeMs = Number(C.game?.scenarioFreezeMs || 1100);
+
+    if (elapsed >= freezeMs) {
+      freezeRoundPhysics();
+      return;
+    }
+
+    // Scenario steering exists only during the initial scatter. After this window
+    // Havok settles naturally and nothing is allowed to "wake up" later.
+    if (elapsed > controlMs) return;
+
+    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.12);
+    const pushStartMs = Number(C.game?.scenarioPushStartMs || 30);
 
     roundPool.chukos.forEach((item,index)=>{
       if (!item?.mesh || !item?.aggregate?.body) return;
       const targeted = scenarioRuntime.targetIds.has(index);
+
       if (!targeted) {
         keepScenarioNonTargetInside(item);
         return;
       }
+
       if (scenarioRuntime.outIds.has(index)) return;
-
-      const metric = whiteRingMetricForItem(item);
-      if (metric != null && metric >= markMetric) {
-        markScenarioOut(item, index, false, false);
-        return;
-      }
+      if (markScenarioOut(item,index,false)) return;
       if (elapsed < pushStartMs) return;
-      if (elapsed >= forceMs) {
-        markScenarioOut(item, index, false, true);
-        return;
-      }
 
-      const body = item.aggregate.body;
-      const angle = scenarioRuntime.targetDirections.get(index)
-        ?? Math.atan2(item.mesh.position.z,item.mesh.position.x);
-      const dx = Math.cos(angle);
-      const dz = Math.sin(angle);
-      const vel = readLinearVelocity(body);
+      const angle = scenarioRuntime.targetDirections.get(index) ?? Math.atan2(item.mesh.position.z,item.mesh.position.x);
+      const dx = Math.cos(angle), dz = Math.sin(angle);
+      const vel = readLinearVelocity(item.aggregate.body);
+      const speed = Math.hypot(vel.x,vel.y,vel.z);
+      if (elapsed > 220 && speed < 0.10) return;
       const outward = vel.x*dx + vel.z*dz;
-      const progress = Math.max(0, Math.min(1, (elapsed-pushStartMs) / Math.max(1, forceMs-pushStartMs)));
-      const desired = 1.55 + progress * 1.70;
+      const progress = Math.max(0,Math.min(1,(elapsed-pushStartMs)/Math.max(1,controlMs-pushStartMs)));
+      const desired = 2.35 + progress*1.15;
       if (outward < desired) {
-        const gain = 0.24 + progress * 0.22;
+        const gain = 0.20 + progress*0.14;
         try {
-          body.setLinearVelocity(new BABYLON.Vector3(
+          item.aggregate.body.setLinearVelocity(new BABYLON.Vector3(
             vel.x + dx*(desired-outward)*gain,
-            Math.min(0.32, vel.y + 0.035),
+            Math.min(0.30,Math.max(vel.y,0.06)),
             vel.z + dz*(desired-outward)*gain
           ));
         } catch (_) {}
@@ -2695,38 +2686,29 @@
     });
 
     const khan = roundPool.khan;
-    if (!khan?.mesh || !khan?.aggregate?.body) return;
-    if (!scenarioRuntime.khanTarget) {
-      keepScenarioNonTargetInside(khan);
-      return;
-    }
-    if (scenarioRuntime.khanOut) return;
-
-    const metric = whiteRingMetricForItem(khan);
-    if (metric != null && metric >= markMetric + 0.02) {
-      markScenarioOut(khan, -1, true, false);
-      return;
-    }
-    if (elapsed < pushStartMs + 80) return;
-    if (elapsed >= forceMs + 140) {
-      markScenarioOut(khan, -1, true, true);
-      return;
-    }
-
-    const body = khan.aggregate.body;
-    const vel = readLinearVelocity(body);
-    const dx = 0.72, dz = -0.69;
-    const outward = vel.x*dx + vel.z*dz;
-    const progress = Math.max(0, Math.min(1, (elapsed-pushStartMs) / Math.max(1, forceMs-pushStartMs)));
-    const desired = 1.70 + progress*1.70;
-    if (outward < desired) {
-      try {
-        body.setLinearVelocity(new BABYLON.Vector3(
-          vel.x + dx*(desired-outward)*(0.26+progress*0.18),
-          Math.min(0.30,vel.y+0.035),
-          vel.z + dz*(desired-outward)*(0.26+progress*0.18)
-        ));
-      } catch (_) {}
+    if (khan?.mesh && khan?.aggregate?.body) {
+      if (!scenarioRuntime.khanTarget) {
+        keepScenarioNonTargetInside(khan);
+      } else if (!scenarioRuntime.khanOut) {
+        if (!markScenarioOut(khan,-1,true) && elapsed >= pushStartMs) {
+          const pileX = Number(tuning.pileX||0), pileZ = Number(tuning.pileZ||0);
+          let dx = khan.mesh.position.x-pileX, dz = khan.mesh.position.z-pileZ;
+          const len = Math.hypot(dx,dz)||1; dx/=len; dz/=len;
+          const vel = readLinearVelocity(khan.aggregate.body);
+          const speed = Math.hypot(vel.x,vel.y,vel.z);
+          if (elapsed > 220 && speed < 0.10) return;
+          const outward = vel.x*dx+vel.z*dz;
+          const progress = Math.max(0,Math.min(1,(elapsed-pushStartMs)/Math.max(1,controlMs-pushStartMs)));
+          const desired = 2.30+progress*1.10;
+          if (outward < desired) {
+            try { khan.aggregate.body.setLinearVelocity(new BABYLON.Vector3(
+              vel.x+dx*(desired-outward)*(0.20+progress*0.12),
+              Math.min(0.28,Math.max(vel.y,0.05)),
+              vel.z+dz*(desired-outward)*(0.20+progress*0.12)
+            )); } catch (_) {}
+          }
+        }
+      }
     }
   }
 

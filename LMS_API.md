@@ -1,4 +1,4 @@
-# CHUKO Modern 3D v0.11.2 — LMS adapter contract
+# CHUKO Modern 3D v0.11.3 — LMS adapter contract
 
 ## Инициализация
 
