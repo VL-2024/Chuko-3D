@@ -1,4 +1,4 @@
-/* CHUKO Modern 3D v0.13.0 — runtime / LMS settings. */
+/* CHUKO Modern 3D v0.13.17 — runtime / LMS settings. */
 window.X2_GAME_CONFIG = {
   gameId: 'CHUKO',
   denomination: 25,
