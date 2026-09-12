@@ -1,4 +1,4 @@
-# CHUKO Modern 3D v0.12.3 — LMS adapter contract
+# CHUKO Modern 3D v0.13.16 — LMS adapter contract
 
 ## Инициализация
 
@@ -47,3 +47,8 @@ Standalone QA использует `mock: true`. В production установи�
 ## События iframe
 
 Игра отправляет `X2_GAME_READY`, `X2_GAME_BALANCE_LOADED`, `X2_GAME_DENOMINATION_CHANGED`, `X2_GAME_MODE_CHANGED`, `X2_GAME_TICKET_READY`, `X2_GAME_ROUND_COMPLETE`, `X2_GAME_ERROR`.
+
+
+## Production note: visual validation
+
+`VISUAL_SCENARIO_MISMATCH` is **not** sent through `X2_GAME_ERROR` and is never shown to the player. Visual validation is an internal diagnostic only; the LMS ticket result remains authoritative.

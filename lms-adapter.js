@@ -6,6 +6,13 @@
   if (!scenarioCfg) throw new Error('X2ChukoScenarioConfig must be loaded before lms-adapter.js');
 
   const params = new URLSearchParams(global.location.search);
+
+  // Contract §9 documents ?mock=false as a real, live-toggleable test
+  // parameter ("Выключает локальную эмуляцию и включает LMS"), not just a
+  // build-time flag - previously only lms-config.js's static `mock: true`
+  // was ever consulted, so this URL param silently did nothing.
+  const MOCK = params.has('mock') ? params.get('mock') !== 'false' : !!cfg.mock;
+
   let session = params.get(cfg.sessionQueryParam || 'session') || null;
   let sessionResolve = null;
   let initResolve = null;
@@ -45,7 +52,10 @@
       language: String(params.get('language') || cfg.language || 'RU').toUpperCase(),
       mode: String(params.get('mode') || cfg.mode || 'demo').toLowerCase(),
       demoAllowed: String(params.get('demoAllowed') ?? cfg.demoAllowed).toLowerCase() === 'true',
-      demoBalance: Number(params.get('demoBalance') || cfg.demoBalance || 10000)
+      demoBalance: Number(params.get('demoBalance') || cfg.demoBalance || 10000),
+      // Contract §9: ?balance= seeds the REAL-mode starting balance for
+      // GitHub/standalone testing, standing in for X2_LMS_INIT's `balance`.
+      balance: Number(params.get('balance') ?? cfg.balance ?? 0)
     };
   }
 
@@ -62,7 +72,8 @@
         language:data.language,
         mode:data.mode,
         demoAllowed:data.demoAllowed,
-        demoBalance:data.demoBalance
+        demoBalance:data.demoBalance,
+        balance:data.balance
       };
       if (data.session) {
         session = String(data.session);
@@ -84,7 +95,7 @@
   }
 
   async function getGameSettings() {
-    if (cfg.mock || cfg.initMode === 'config' || global.parent === global) return querySettings();
+    if (MOCK || cfg.initMode === 'config' || global.parent === global) return querySettings();
     if (runtimeInit) return {...querySettings(), ...runtimeInit};
     emit('X2_GAME_READY', {
       gameId:params.get('gameId') || cfg.gameId || 'CHUKO',
@@ -100,7 +111,7 @@
   }
 
   async function waitForSession() {
-    if (cfg.mock || cfg.sessionMode === 'cookie') return null;
+    if (MOCK || cfg.sessionMode === 'cookie') return null;
     if (session) return session;
     if (cfg.sessionMode === 'query') throw makeError('SESSION_REQUIRED','Session query parameter is missing');
     const timeout = Number(cfg.requestTimeoutMs || 10000);
@@ -172,7 +183,7 @@
 
   async function getBalance({currency}={}) {
     const cur = String(currency || cfg.currency || 'KGS').toUpperCase();
-    if (cfg.mock) {
+    if (MOCK) {
       await new Promise(r=>setTimeout(r,140));
       if (!(cur in mockBalances)) mockBalances[cur]=1000;
       return {balance:mockBalances[cur], currency:cur, currencyDisplay:cfg.currencyDisplay || cur};
@@ -182,10 +193,9 @@
   }
 
   async function createTicket({gameId, denomination, currency, language}) {
-    const requestId = global.crypto?.randomUUID ? global.crypto.randomUUID() : String(Date.now())+'-'+Math.random().toString(16).slice(2);
     const cur = String(currency || cfg.currency || 'KGS').toUpperCase();
     const lang = String(language || cfg.language || 'RU').toUpperCase();
-    if (cfg.mock) {
+    if (MOCK) {
       await new Promise(r=>setTimeout(r,180));
       const forced = params.get('scenario');
       const forcedItem = forced != null ? scenarioCfg.get(forced) : null;
@@ -201,11 +211,17 @@
         currencyDisplay:cfg.currencyDisplay || cur, language:lang, multiplier
       };
     }
-    const data = await apiRequest(cfg.endpoints.newGame, {
-      method:'POST',
-      headers:{'Idempotency-Key':requestId},
-      body:JSON.stringify({requestId,gameId,denomination:Number(denomination),currency:cur,language:lang})
+    // Contract §3: PayTicket is a plain GET with exactly Method/gameId/amount
+    // - not a POST with a JSON body, and the stake field is named `amount`,
+    // not `denomination`. currency/language are established once at
+    // X2_LMS_INIT and are not part of this call.
+    const qs = new URLSearchParams({
+      Method: 'PayTicket',
+      gameId: String(gameId ?? cfg.gameId ?? ''),
+      amount: String(Number(denomination))
     });
+    const sep = cfg.endpoints.newGame.includes('?') ? '&' : '?';
+    const data = await apiRequest(cfg.endpoints.newGame + sep + qs.toString(), { method:'GET' });
     return normalizeTicket(data,{gameId,denomination,currency:cur,currencyDisplay:cfg.currencyDisplay,language:lang});
   }
 
@@ -231,7 +247,7 @@
   global.X2LMS = {getGameSettings,getBalance,createTicket,createDemoTicket,emit,getSession:()=>session};
   setTimeout(()=>emit('X2_GAME_READY',{
     gameId:params.get('gameId') || cfg.gameId || 'CHUKO',
-    needsInit:!cfg.mock && cfg.initMode==='postMessage',
-    needsSession:!cfg.mock && cfg.sessionMode==='postMessage'
+    needsInit:!MOCK && cfg.initMode==='postMessage',
+    needsSession:!MOCK && cfg.sessionMode==='postMessage'
   }),0);
 })(window);

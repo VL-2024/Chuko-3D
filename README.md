@@ -1,4 +1,4 @@
-# CHUKO Modern 3D v0.12.3
+# CHUKO Modern 3D v0.13.16
 
 Исправлены направление разлёта, точность попадания САКА и дальность выбитых чүкө.
 
@@ -21,3 +21,13 @@
 ## Раскладка
 
 Минимальная дистанция между конечными точками увеличена, чтобы после удара чүкө меньше собирались плотными группами.
+
+
+## v0.13.16 — visual result validation / green carpet boundary
+
+- Added an explicit `greenRing` calibrated to the outer coloured carpet edge.
+- OUT landing points are generated against `greenRing`, with the whole projected chükö footprint required to be outside it.
+- IN landing points are prevalidated against the white chalk ring; a small edge overlap remains allowed.
+- All landing footprints are checked against the visible screen safe area before the throw.
+- After the deterministic scatter finishes, `Выбито` is recomputed from the actual final rendered positions rather than trusting `targetIds/outIds`.
+- Final scenario validation remains internal only. A visual mismatch is **never shown to the player** and is not emitted through `X2_GAME_ERROR`; the LMS ticket/scenario/win remains authoritative.

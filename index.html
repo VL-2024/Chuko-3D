@@ -1,56 +1,190 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#07131a" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
-  <title>ЧҮКӨ Modern 3D · LMS/scenarios 0.12.3</title>
-  <link rel="stylesheet" href="styles.css?v=0.12.3" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#02142f">
+<meta name="format-detection" content="telephone=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>ЧҮКӨ Modern 3D — LMS/scenarios 0.13</title>
+<link rel="stylesheet" href="styles.css?v=0.13.16">
+<style id="shell-size-style"></style>
+<script>
+// "не помогло": switching the CSS calc from `dvh` to a JS-driven `vh`
+// custom property (previous attempt) still didn't fix in-app browsers
+// (Telegram/Instagram/VK). Those WebViews can be unreliable not just for
+// the `dvh` unit but for `calc()`/`aspect-ratio` sizing math in general.
+// This drops CSS viewport math entirely: plain JS computes the exact
+// pixel width/height from window.innerWidth and
+// window.visualViewport.height (falling back to innerHeight), and writes
+// them into a <style> tag as a hard #shell{width:...px;height:...px}
+// rule (!important, so it always wins over anything in styles.css
+// regardless of load order). Only window.innerWidth/innerHeight and
+// visualViewport are used - no vh, dvh, vw, or aspect-ratio math for the
+// actual sizing, since those are exactly the pieces that already proved
+// unreliable here.
+(function () {
+  var styleEl = document.getElementById('shell-size-style');
+  var RATIO = 941 / 1672; // width / height
+
+  function layoutShell() {
+    var vw = window.innerWidth || document.documentElement.clientWidth || 360;
+    var vh = (window.visualViewport && window.visualViewport.height)
+      || window.innerHeight
+      || document.documentElement.clientHeight
+      || 640;
+    if (!vw || !vh) return;
+    var w = Math.min(vw, 560, vh * RATIO);
+    var h = w / RATIO;
+    if (styleEl) {
+      styleEl.textContent = '#shell{width:' + w.toFixed(2) + 'px !important;'
+        + 'height:' + h.toFixed(2) + 'px !important;}';
+    }
+  }
+
+  layoutShell();
+  window.addEventListener('resize', layoutShell);
+  window.addEventListener('orientationchange', function () {
+    setTimeout(layoutShell, 50);
+    setTimeout(layoutShell, 300);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', layoutShell);
+    window.visualViewport.addEventListener('scroll', layoutShell);
+  }
+  document.addEventListener('DOMContentLoaded', layoutShell);
+  // Some in-app browsers (Telegram in particular) finish collapsing their
+  // own URL bar / chrome a moment AFTER the page reports loaded, silently
+  // resizing the visible area without firing a resize event reliably.
+  setTimeout(layoutShell, 300);
+  setTimeout(layoutShell, 1000);
+  setTimeout(layoutShell, 2000);
+})();
+</script>
 </head>
 <body>
-  <main id="app">
+<div class="shell" id="shell">
+  <div class="bg-layer"></div>
+
+  <div class="render-layer" id="render-host">
     <div class="art-stack" aria-hidden="true">
-      <img class="bg-photo" src="assets/background-realistic.webp" alt="" />
-      <img class="field-photo" src="assets/field-realistic.webp" alt="" />
+      <img class="bg-photo" src="assets/background-realistic.webp" alt="">
+      <img class="field-photo" src="assets/field-realistic.webp" alt="">
       <div class="field-tone"></div>
       <div class="field-focus"></div>
       <div class="art-vignette"></div>
     </div>
-
     <canvas id="renderCanvas" touch-action="none" aria-label="3D поле ЧҮКӨ"></canvas>
+  </div>
 
-    <header class="hud top-safe">
-      <div class="brand"><b>X2</b> LOTO <span>· ЧҮКӨ Modern 3D</span><em>v0.12.3 · LMS</em></div>
-      <div class="badge" id="physicsBadge">HAVOK · загрузка…</div>
-    </header>
-
-
-    <section class="game-bar" aria-label="Игровая информация">
-      <div class="mode-switch" role="group" aria-label="Режим игры">
-        <button id="demoModeBtn" class="mode active" type="button">DEMO</button>
-        <button id="realModeBtn" class="mode" type="button">REAL</button>
+  <div class="ui-layer">
+    <div class="topbar">
+      <img class="brand-logo" src="assets/logo.svg" alt="X2 LOTO">
+      <div class="game-title-inline">
+        <div class="game-title-main" data-i18n="title">ЧҮКӨ</div>
+        <div class="game-title-sub" data-i18n="subtitle">Выбей Хана</div>
       </div>
-      <div class="ticket-box"><span>БИЛЕТ</span><strong id="ticketNo">—</strong></div>
-      <div class="balance-box"><span>БАЛАНС</span><strong id="balanceValue">—</strong></div>
-    </section>
+      <div class="wallet">
+        <div class="wallet-meta"><div class="small-label" data-i18n="balance">Баланс</div><div class="amount" id="balance-value">—</div></div>
+        <button class="deposit" id="deposit-btn" aria-label="deposit">+</button>
+      </div>
+    </div>
 
-    <section class="denom-bar" aria-label="Номинал билета">
-      <span>НОМИНАЛ</span>
-      <button class="denom active" type="button" data-denom="25">25</button>
-      <button class="denom" type="button" data-denom="50">50</button>
-      <button class="denom" type="button" data-denom="100">100</button>
-      <em>сом</em>
-    </section>
+    <!-- Player-facing language switch: confirmed behaviour is the game
+         starts in whatever language the LMS provides (see
+         initializeGameIntegration()), and the player can change it anytime
+         from here - not just a QA/debug affordance. Current styling is a
+         quick corner toggle for testing all languages easily; feel free to
+         ask for a more polished placement/design once the language list is
+         final. -->
+    <div class="lang-switch" id="lang-switch" title="Язык / Language">
+      <button data-lang="RU" type="button">RU</button><button data-lang="EN" type="button">EN</button><button data-lang="KG" type="button">KG</button><button data-lang="ZH" type="button">ZH</button>
+    </div>
 
-    <section id="resultCard" class="result-card" hidden aria-live="polite">
-      <span class="result-kicker">РЕЗУЛЬТАТ</span>
-      <strong id="resultMain">Выбито: 0</strong>
-      <span id="resultSub">ХАН остался в круге</span>
-    </section>
+    <section class="aim-power" id="aimPower" hidden>СИЛА <strong>0%</strong></section>
+
+    <div class="bottom-tools">
+      <div class="bottom-controls">
+        <div class="mode-switch hidden" id="mode-switch">
+          <button data-mode="real">REAL</button><button data-mode="demo">DEMO</button>
+        </div>
+
+        <div class="info-wrap">
+          <button class="info-btn" id="info-btn" type="button" data-i18n="info">Инфо</button>
+          <div class="info-menu" id="info-menu" aria-hidden="true">
+            <button id="info-payout" type="button" data-i18n="payoutTable">Таблица выплат</button>
+            <button id="info-how" type="button" data-i18n="howToPlay">Как играть</button>
+            <button id="info-tickets" type="button" data-i18n="myTickets">Мои билеты</button>
+          </div>
+        </div>
+
+        <button class="audio-toggle" id="sound-btn" type="button" aria-label="Звук" title="Звук">🔊</button>
+        <button class="audio-toggle" id="music-btn" type="button" aria-label="Музыка" title="Музыка">♫×</button>
+      </div>
+
+      <div class="ticket-number" id="ticket-number" title="">№ —</div>
+    </div>
+
+    <div class="help-modal" id="help-modal" aria-hidden="true">
+      <div class="help-dialog">
+        <button class="help-close" id="help-close" aria-label="close">×</button>
+        <div class="help-title" data-i18n="helpTitle"></div>
+        <div class="help-step"><span class="help-num">1</span><span data-i18n="helpPull"></span></div>
+        <div class="help-step"><span class="help-num">2</span><span data-i18n="helpScenario"></span></div>
+        <div class="help-step"><span class="help-num">3</span><span data-i18n="helpMultiplier"></span></div>
+        <div class="help-step"><span class="help-num">4</span><span data-i18n="helpKhan"></span></div>
+        <button class="help-ok" id="help-ok" data-i18n="helpOk"></button>
+      </div>
+    </div>
+
+    <div class="payout-modal" id="payout-modal" aria-hidden="true">
+      <div class="payout-dialog">
+        <button class="payout-close" id="payout-close" aria-label="close">×</button>
+        <div class="payout-modal-title" data-i18n="payoutTable">Таблица выплат</div>
+        <div class="payout-grid payout-grid-modal" id="payout-grid"></div>
+        <button class="payout-ok" id="payout-ok" data-i18n="helpOk">Понятно</button>
+      </div>
+    </div>
+
+    <div class="tickets-modal" id="tickets-modal" aria-hidden="true">
+      <div class="tickets-dialog">
+        <button class="tickets-close" id="tickets-close" aria-label="close">×</button>
+        <div class="tickets-title" data-i18n="recentTickets">Последние билеты</div>
+        <div class="tickets-list" id="tickets-list"></div>
+        <button class="tickets-ok" id="tickets-ok" data-i18n="helpOk">Понятно</button>
+      </div>
+    </div>
+
+    <div class="celebration-layer" id="celebration-layer" aria-hidden="true"></div>
+    <div class="result-toast" id="result-toast"></div>
+
+    <div class="score">
+      <div class="score-cell"><div class="score-label" data-i18n="knocked">ВЫБИТО</div><div class="score-value" id="score-knocked">0</div></div>
+      <div class="score-cell"><div class="score-label" data-i18n="khan">ХАН</div><div class="score-value gold" id="score-khan">—</div></div>
+      <div class="score-cell"><div class="score-label" data-i18n="scoreWin">ВЫИГРЫШ</div><div class="score-value accent" id="score-win">0</div></div>
+    </div>
+
+    <div class="action-row">
+      <select class="denom-select" id="denom-select" aria-label="Номинал"></select>
+      <button class="action" id="action-btn" disabled>Загрузка...</button>
+      <button class="autoplay-btn" id="autoplay-btn" type="button">Автоигра</button>
+
+      <div class="autoplay-menu" id="autoplay-menu" aria-hidden="true">
+        <div class="autoplay-menu-title" id="autoplay-menu-title">Количество игр</div>
+        <div class="autoplay-counts" id="autoplay-counts"></div>
+      </div>
+    </div>
+
+    <div class="hint-bar" id="hint-bar">
+      <span class="hint-text" id="hint-text">Потяните САКА назад и отпустите</span>
+      <button class="hint-toggle" id="hint-toggle" type="button" aria-label="Скрыть подсказку">×</button>
+    </div>
+
+
+
 
     <section class="perf" id="perfPanel" aria-live="polite">
       <div><span>FPS</span><strong id="fps">—</strong></div>
@@ -59,167 +193,23 @@
       <div><span>scale</span><strong id="renderScale">—</strong></div>
     </section>
 
-    <section class="hint" id="hint">Потяните САКА назад и отпустите</section>
-    <section class="aim-power" id="aimPower" hidden>СИЛА <strong>0%</strong></section>
-
-
-    <button id="tuneBtn" class="tune-btn" type="button" aria-expanded="false">⚙ НАСТРОЙКА</button>
-
-    <aside id="tunePanel" class="tune-panel" hidden aria-label="Настройка композиции">
-      <div class="tune-head">
-        <div>
-          <strong>Подгонка экрана</strong>
-          <span>Значения сохраняются на этом устройстве</span>
-        </div>
-        <button id="tuneCloseBtn" type="button" class="tune-close">×</button>
-      </div>
-
-      <section class="tune-group">
-        <h3>ФОН И ПОЛЕ</h3>
-        <label class="tune-row">
-          <span>Размер поля <output data-out="fieldWidth"></output></span>
-          <input type="range" min="88" max="116" step="1" data-tune="fieldWidth">
-        </label>
-        <label class="tune-row">
-          <span>Поле выше / ниже <output data-out="fieldBottom"></output></span>
-          <input type="range" min="90" max="280" step="2" data-tune="fieldBottom">
-        </label>
-        <label class="tune-row">
-          <span>Поле влево / вправо <output data-out="fieldX"></output></span>
-          <input type="range" min="-90" max="90" step="2" data-tune="fieldX">
-        </label>
-        <label class="tune-row">
-          <span>Масштаб фона <output data-out="bgScale"></output></span>
-          <input type="range" min="0.92" max="1.28" step="0.01" data-tune="bgScale">
-        </label>
-        <label class="tune-row">
-          <span>Фон выше / ниже <output data-out="bgY"></output></span>
-          <input type="range" min="-140" max="140" step="2" data-tune="bgY">
-        </label>
-        <label class="tune-row">
-          <span>Фон влево / вправо <output data-out="bgX"></output></span>
-          <input type="range" min="-100" max="100" step="2" data-tune="bgX">
-        </label>
-      </section>
-
-      <section class="tune-group">
-        <h3>КУЧКА ЧҮКӨ</h3>
-        <label class="tune-row">
-          <span>Кучка влево / вправо <output data-out="pileX"></output></span>
-          <input type="range" min="-0.80" max="0.80" step="0.02" data-tune="pileX">
-        </label>
-        <label class="tune-row">
-          <span>Кучка вперёд / назад <output data-out="pileZ"></output></span>
-          <input type="range" min="-1.80" max="0.55" step="0.02" data-tune="pileZ">
-        </label>
-        <label class="tune-row">
-          <span>Ширина кучки <output data-out="spreadX"></output></span>
-          <input type="range" min="0.38" max="1.00" step="0.02" data-tune="spreadX">
-        </label>
-        <label class="tune-row">
-          <span>Глубина кучки <output data-out="spreadZ"></output></span>
-          <input type="range" min="0.26" max="0.82" step="0.02" data-tune="spreadZ">
-        </label>
-        <label class="tune-row">
-          <span>Размер чүкө <output data-out="chukoScale"></output></span>
-          <input type="range" min="0.50" max="1.00" step="0.02" data-tune="chukoScale">
-        </label>
-      </section>
-
-      <section class="tune-group">
-        <h3>3D КАМЕРА</h3>
-        <label class="tune-row">
-          <span>Общий размер 3D <output data-out="cameraRadius"></output></span>
-          <input type="range" min="7.40" max="10.60" step="0.05" data-tune="cameraRadius">
-        </label>
-        <label class="tune-row">
-          <span>3D влево / вправо <output data-out="cameraTargetX"></output></span>
-          <input type="range" min="-0.80" max="0.80" step="0.02" data-tune="cameraTargetX">
-        </label>
-        <label class="tune-row">
-          <span>3D вперёд / назад <output data-out="cameraTargetZ"></output></span>
-          <input type="range" min="-0.80" max="0.80" step="0.02" data-tune="cameraTargetZ">
-        </label>
-      </section>
-
-      <section class="tune-group">
-        <h3>GLB МОДЕЛИ</h3>
-        <label class="tune-row">
-          <span>Размер GLB чүкө <output data-out="chukoModelScale"></output></span>
-          <input type="range" min="0.72" max="1.28" step="0.02" data-tune="chukoModelScale">
-        </label>
-        <label class="tune-row">
-          <span>Высота GLB чүкө <output data-out="chukoModelY"></output></span>
-          <input type="range" min="-0.16" max="0.16" step="0.01" data-tune="chukoModelY">
-        </label>
-        <label class="tune-row">
-          <span>Размер GLB ХАН <output data-out="khanModelScale"></output></span>
-          <input type="range" min="0.72" max="1.28" step="0.02" data-tune="khanModelScale">
-        </label>
-        <label class="tune-row">
-          <span>Высота GLB ХАН <output data-out="khanModelY"></output></span>
-          <input type="range" min="-0.16" max="0.16" step="0.01" data-tune="khanModelY">
-        </label>
-        <label class="tune-row">
-          <span>Размер GLB САКА <output data-out="sakaModelScale"></output></span>
-          <input type="range" min="0.72" max="1.28" step="0.02" data-tune="sakaModelScale">
-        </label>
-        <label class="tune-row">
-          <span>Высота GLB САКА <output data-out="sakaModelY"></output></span>
-          <input type="range" min="-0.20" max="0.20" step="0.01" data-tune="sakaModelY">
-        </label>
-        <label class="tune-row">
-          <span>Поворот GLB САКА Y <output data-out="sakaModelYawDeg"></output></span>
-          <input type="range" min="-180" max="180" step="5" data-tune="sakaModelYawDeg">
-        </label>
-        <label class="tune-row">
-          <span>Наклон GLB САКА X <output data-out="sakaModelPitchDeg"></output></span>
-          <input type="range" min="-180" max="180" step="5" data-tune="sakaModelPitchDeg">
-        </label>
-        <label class="tune-row">
-          <span>Завал GLB САКА Z <output data-out="sakaModelRollDeg"></output></span>
-          <input type="range" min="-180" max="180" step="5" data-tune="sakaModelRollDeg">
-        </label>
-      </section>
-
-      <section class="tune-group">
-        <h3>САКА</h3>
-        <label class="tune-row">
-          <span>САКА влево / вправо <output data-out="sakaX"></output></span>
-          <input type="range" min="-0.30" max="1.60" step="0.02" data-tune="sakaX">
-        </label>
-        <label class="tune-row">
-          <span>САКА ближе / дальше <output data-out="sakaZ"></output></span>
-          <input type="range" min="2.10" max="3.80" step="0.02" data-tune="sakaZ">
-        </label>
-      </section>
-
-      <div class="tune-actions">
-        <button id="tuneDefaultsBtn" type="button">СБРОСИТЬ НА 0.12.3</button>
-        <button id="tuneCopyBtn" type="button">КОПИРОВАТЬ ПАРАМЕТРЫ</button>
-      </div>
-      <textarea id="tuneOutput" class="tune-output" readonly rows="5" aria-label="Текущие параметры"></textarea>
-    </aside>
-
-    <footer class="controls bottom-safe">
-      <button id="throwBtn" class="primary">БРОСИТЬ САКА</button>
-      <button id="resetBtn" class="secondary">НОВАЯ ИГРА</button>
-      <div class="microcopy">LMS adapter · сервер/DEMO задаёт сценарий, 3D его визуализирует</div>
-    </footer>
-
     <div class="fatal" id="fatal" hidden>
-      <strong>Не удалось запустить 3D-прототип</strong>
+      <strong>Не удалось запустить игру</strong>
       <span id="fatalText"></span>
     </div>
-  </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.25.0/babylonjs.loaders.min.js"></script>
-  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="src/config.js?v=0.12.3"></script>
-  <script src="lms-config.js?v=0.12.3"></script>
-  <script src="src/scenario-config.js?v=0.12.3"></script>
-  <script src="lms-adapter.js?v=0.12.3"></script>
-  <script src="src/game.js?v=0.12.3"></script>
+    <div class="debug">v0.13.16 · Babylon.js 9.25 + Havok · LMS UI из v20.61</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9.25.0/babylon.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.25.0/babylonjs.loaders.min.js"></script>
+<script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+<script src="src/config.js?v=0.13.16"></script>
+<script src="lms-config.js?v=0.13.16"></script>
+<script src="src/scenario-config.js?v=0.13.16"></script>
+<script src="lms-adapter.js?v=0.13.16"></script>
+<script src="src/i18n.js?v=0.13.16"></script>
+<script src="src/game.js?v=0.13.16"></script>
 </body>
 </html>
