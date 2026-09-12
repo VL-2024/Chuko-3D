@@ -199,7 +199,8 @@
       await new Promise(r=>setTimeout(r,180));
       const forced = params.get('scenario');
       const forcedItem = forced != null ? scenarioCfg.get(forced) : null;
-      const scenario = forcedItem ? forcedItem.id : scenarioCfg.demoIds[mockCounter++ % scenarioCfg.demoIds.length];
+      const demoItem = forcedItem || scenarioCfg.demoAt(mockCounter++);
+      const scenario = demoItem.id;
       const multiplier = scenarioCfg.demoMultiplier(scenario);
       const win = Number(denomination) * multiplier;
       if (!(cur in mockBalances)) mockBalances[cur]=1000;
@@ -229,8 +230,8 @@
     await new Promise(r=>setTimeout(r,120));
     const forced = params.get('scenario');
     const forcedItem = forced != null ? scenarioCfg.get(forced) : null;
-    const scenario = forcedItem ? forcedItem.id : scenarioCfg.demoIds[mockCounter++ % scenarioCfg.demoIds.length];
-    const item = scenarioCfg.get(scenario);
+    const item = forcedItem || scenarioCfg.demoAt(mockCounter++);
+    const scenario = item.id;
     const multiplier = scenarioCfg.demoMultiplier(scenario);
     const win = Number(denomination) * multiplier;
     const startBalance = Number(demoBalance ?? cfg.demoBalance ?? 10000);
