@@ -1,4 +1,4 @@
-/* CHUKO Modern 3D v0.13.17 — visual scenario source of truth.
+/* CHUKO Modern 3D v0.13.18 — visual scenario source of truth.
  * REAL-money payout remains LMS-authoritative.
  * Numeric IDs 1..7 are preserved for backward compatibility:
  * 1 ZERO, 2 ONE, 3 TWO, 4 FIVE, 5 FIVE_KHAN, 6 THREE, 7 FOUR.
