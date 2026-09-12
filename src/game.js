@@ -5,9 +5,10 @@
   const LMS = window.X2LMS;
   const ScenarioCfg = window.X2ChukoScenarioConfig;
   const LMS_CFG = window.X2_GAME_CONFIG || {};
-  const DICT = window.CHUKO_I18N || { RU: {} };
   const ui = {
     canvas: document.getElementById('renderCanvas'),
+    throwBtn: document.getElementById('throwBtn'),
+    resetBtn: document.getElementById('resetBtn'),
     fps: document.getElementById('fps'),
     frameMs: document.getElementById('frameMs'),
     bodyCount: document.getElementById('bodyCount'),
@@ -23,54 +24,14 @@
     tuneDefaultsBtn: document.getElementById('tuneDefaultsBtn'),
     tuneCopyBtn: document.getElementById('tuneCopyBtn'),
     tuneOutput: document.getElementById('tuneOutput'),
-    fieldPhoto: document.querySelector('.field-photo'),
-
-    balance: document.getElementById('balance-value'),
-    deposit: document.getElementById('deposit-btn'),
-    modeSwitch: document.getElementById('mode-switch'),
-
-    denomStrip: document.getElementById('denom-strip'),
-    denomViewport: document.getElementById('denom-viewport'),
-    denomTrack: document.getElementById('denom-track'),
-    denomPrev: document.getElementById('denom-prev'),
-    denomNext: document.getElementById('denom-next'),
-
-    action: document.getElementById('action-btn'),
-    autoPlay: document.getElementById('autoplay-btn'),
-    autoMenu: document.getElementById('autoplay-menu'),
-    autoMenuTitle: document.getElementById('autoplay-menu-title'),
-    autoCounts: document.getElementById('autoplay-counts'),
-
-    status: document.getElementById('status'),
-    toast: document.getElementById('result-toast'),
-    celebration: document.getElementById('celebration-layer'),
-    knocked: document.getElementById('score-knocked'),
-    scoreWin: document.getElementById('score-win'),
-    khan: document.getElementById('score-khan'),
-
-    info: document.getElementById('info-btn'),
-    infoMenu: document.getElementById('info-menu'),
-    infoPayout: document.getElementById('info-payout'),
-    infoHow: document.getElementById('info-how'),
-    infoTickets: document.getElementById('info-tickets'),
-
-    sound: document.getElementById('sound-btn'),
-    music: document.getElementById('music-btn'),
-    ticketNumber: document.getElementById('ticket-number'),
-
-    helpModal: document.getElementById('help-modal'),
-    helpClose: document.getElementById('help-close'),
-    helpOk: document.getElementById('help-ok'),
-
-    payoutModal: document.getElementById('payout-modal'),
-    payoutClose: document.getElementById('payout-close'),
-    payoutOk: document.getElementById('payout-ok'),
-    payoutGrid: document.getElementById('payout-grid'),
-
-    ticketsModal: document.getElementById('tickets-modal'),
-    ticketsClose: document.getElementById('tickets-close'),
-    ticketsOk: document.getElementById('tickets-ok'),
-    ticketsList: document.getElementById('tickets-list')
+    demoModeBtn: document.getElementById('demoModeBtn'),
+    realModeBtn: document.getElementById('realModeBtn'),
+    ticketNo: document.getElementById('ticketNo'),
+    balanceValue: document.getElementById('balanceValue'),
+    resultCard: document.getElementById('resultCard'),
+    resultMain: document.getElementById('resultMain'),
+    resultSub: document.getElementById('resultSub'),
+    fieldPhoto: document.querySelector('.field-photo')
   };
 
   let engine;
@@ -124,59 +85,6 @@
     resultShown: false,
     busy: false
   };
-
-  // ---------------------------------------------------------------------
-  // Full-version UI state ported from v20.61 (audio, autoplay, ticket
-  // history). The 3D scenario/physics engine above remains the single
-  // source of truth for game state; everything here only presents it.
-  // ---------------------------------------------------------------------
-  const audioSettings = {
-    soundEnabled: Boolean(LMS_CFG.audio?.soundEnabled ?? true),
-    musicEnabled: Boolean(LMS_CFG.audio?.musicEnabled ?? false),
-    soundVolume: Math.max(0, Math.min(1, Number(LMS_CFG.audio?.soundVolume ?? 0.22))),
-    musicVolume: Math.max(0, Math.min(1, Number(LMS_CFG.audio?.musicVolume ?? 0.20)))
-  };
-  const musicTracks = Array.isArray(LMS_CFG.audio?.musicTracks) ? LMS_CFG.audio.musicTracks.filter(Boolean) : [];
-  const voiceTags = Array.isArray(LMS_CFG.audio?.voiceTags) ? LMS_CFG.audio.voiceTags.filter(Boolean) : [];
-  const voiceSettings = {
-    volume: Math.max(0, Math.min(1, Number(LMS_CFG.audio?.voiceVolume ?? 0.72))),
-    minDelayMs: Math.max(5000, Number(LMS_CFG.audio?.voiceMinDelayMs ?? 28000)),
-    maxDelayMs: Math.max(7000, Number(LMS_CFG.audio?.voiceMaxDelayMs ?? 45000)),
-    duckFactor: Math.max(0.15, Math.min(1, Number(LMS_CFG.audio?.musicDuckFactor ?? 0.68)))
-  };
-  const soundFiles = {
-    throw: LMS_CFG.audio?.soundFiles?.throw || null,
-    impact: LMS_CFG.audio?.soundFiles?.impact || null,
-    khanImpact: LMS_CFG.audio?.soundFiles?.khanImpact || null,
-    win: LMS_CFG.audio?.soundFiles?.win || null
-  };
-  const effectFileVolume = Math.max(0, Math.min(1, Number(LMS_CFG.audio?.effectFileVolume ?? 0.42)));
-
-  try {
-    const storedSound = localStorage.getItem('x2-chuko-sound');
-    const storedMusic = localStorage.getItem('x2-chuko-music');
-    if (storedSound !== null) audioSettings.soundEnabled = storedSound === '1';
-    if (storedMusic !== null) audioSettings.musicEnabled = storedMusic === '1';
-  } catch (_) {}
-
-  const audioRuntime = {
-    ctx: null, master: null, sfxGain: null, musicGain: null,
-    musicElement: null, musicTrackIndex: -1,
-    voiceElement: null, voiceTimer: null, voiceTagIndex: -1,
-    impactTimer: null, lastPhase: null
-  };
-
-  const autoPlay = {
-    active: false,
-    stopRequested: false,
-    selected: null,
-    total: 0,
-    completed: 0,
-    remaining: 0,
-    fixedStake: null,
-    nextTimer: null,
-    throwTimer: null
-  };
   const scenarioRuntime = {
     plan: null,
     targetIds: new Set(),
@@ -207,60 +115,30 @@
   const chukoClampPending = new Set();
   let sakaClampPending = false;
   let roundPhysicsFrozen = false;
-  // World XZ that the scatter direction/metric system pivots on. Set from
-  // the tuning.scatterPivotX/Z sliders ("ЦЕНТР РАЗЛЁТА" in the tune panel) -
-  // calibrate these by eye after a throw if the ring of remaining chükö
-  // looks off-centre relative to the white line on the carpet.
-  let scatterPivot = { x: 0, z: 0 };
-
-  // --- TEMPORARY diagnostics for the "SAKA doesn't touch the pile" issue ---
-  // Confirmed fixed (2026-09): the real Havok collision trigger fires
-  // ~1.2s after throw, matching the ballistic flight time, and the scatter
-  // completes naturally without the forced-completion fallback. Left this
-  // infrastructure in place (flip to true) in case similar diagnosis is
-  // needed again; safe to delete entirely once the fix has proven stable.
-  const DEBUG_CONTACT = false;
-  let debugLastLogAt = 0;
-  let debugRoundStartAt = 0;
-  function debugLog(label, data) {
-    if (!DEBUG_CONTACT) return;
-    const t = debugRoundStartAt ? (performance.now() - debugRoundStartAt).toFixed(0) + 'ms' : '?';
-    console.log(`[CHUKO DEBUG t=${t}] ${label}`, data);
-  }
-  function debugLogThrottled(label, data, minGapMs = 120) {
-    if (!DEBUG_CONTACT) return;
-    const now = performance.now();
-    if (now - debugLastLogAt < minGapMs) return;
-    debugLastLogAt = now;
-    debugLog(label, data);
-  }
-  // --- end temporary diagnostics ---
 
   const TUNE_STORAGE_KEY = 'chuko3d-v0113-stable-game';
   const TUNE_DEFAULTS = Object.freeze({
     fieldWidth: 88,
-    fieldBottom: 414,
-    fieldX: 2,
+    fieldBottom: 280,
+    fieldX: 0,
     bgScale: 1.01,
     bgX: 0,
-    bgY: -44,
-    pileX: -0.10,
-    pileZ: -1.80,
-    scatterPivotX: -0.10,
-    scatterPivotZ: -1.80,
-    spreadX: 0.52,
-    spreadZ: 0.82,
-    chukoScale: 0.62,
-    cameraRadius: 8.40,
-    cameraTargetX: -0.04,
-    cameraTargetZ: 0.26,
+    bgY: 8,
+    pileX: -0.08,
+    pileZ: -1.20,
+    spreadX: 0.54,
+    spreadZ: 0.68,
+    chukoScale: 0.60,
+    cameraRadius: 8.95,
+    cameraTargetX: 0.00,
+    cameraTargetZ: 0.18,
     sakaX: -0.16,
     sakaZ: 2.85,
-    chukoModelScale: 1.22,
-    chukoModelY: -0.14,
-    khanModelScale: 0.98,
-    khanModelY: -0.15,
-    sakaModelScale: 0.78,
+    chukoModelScale: 1.10,
+    chukoModelY: -0.16,
+    khanModelScale: 1.22,
+    khanModelY: 0.01,
+    sakaModelScale: 0.90,
     sakaModelY: 0.00,
     sakaModelYawDeg: 0,
     sakaModelPitchDeg: -100,
@@ -296,16 +174,11 @@
 
   function applyPilePieceScale() {
     if (!roundPool.initialized) return;
-    // v0.12.4: chükö geometry/physics dims are now baked pre-scaled at
-    // creation time in ensureRoundPool(), so the proxy mesh itself needs no
-    // extra node-level scaling any more - it's already the right size.
-    // Setting scaling here again would only double up on that (and still
-    // would not reach the already-built Havok collider, so it was never
-    // doing anything useful for gameplay anyway).
+    const s = pilePieceScale();
     for (const item of roundPool.chukos) {
-      if (item?.mesh?.scaling?.setAll) item.mesh.scaling.setAll(1);
+      if (item?.mesh?.scaling?.setAll) item.mesh.scaling.setAll(s);
     }
-    // KHAN always keeps its own, separate (unscaled) size.
+    // chukoScale changes only the 12 regular chükö. KHAN keeps its own scale.
     if (roundPool.khan?.mesh?.scaling?.setAll) roundPool.khan.mesh.scaling.setAll(1);
     applyAllVisualTuning();
     updatePileShadow();
@@ -329,14 +202,6 @@
   function releasePileIfImpactIsImminent() {
     if (pileReleasedForThrow || !throwState.active || !saka || !sakaAggregate || !throwState.targetPoint) return;
 
-    // Deterministic scenario rounds never physically release the pile here -
-    // it stays STATIC until startScenarioScatter() runs the precomputed
-    // flight plan. The single, authoritative contact trigger for that is in
-    // applyImpactBoostIfNeeded(); this function must not also flip
-    // pileReleasedForThrow with its own, looser thresholds, or the scatter
-    // start becomes a race between two different contact definitions.
-    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) return;
-
     const velocity = readLinearVelocity(sakaAggregate.body);
     if (velocity.y >= -0.12) return;
 
@@ -351,6 +216,12 @@
     // changing the final landing point.
     if (saka.position.y > releaseY || horizontalError > maxError) return;
 
+    if (scenarioRuntime.active && C.game?.deterministicScatter !== false) {
+      // Scenario rounds keep the pile static until the single deterministic
+      // scatter animation starts at contact.
+      pileReleasedForThrow = true;
+      return;
+    }
     setPileBodiesMotionDynamic();
     pileReleasedForThrow = true;
   }
@@ -400,7 +271,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.12.3] GLB bounds', {
+    console.info('[CHUKO 0.12.6] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -548,15 +419,6 @@
     applyVisualTuning(roundPool.saka?.visual);
   }
 
-  function sakaVisualLiftY(mesh) {
-    const pileX = Number(tuning.pileX || 0);
-    const pileZ = Number(tuning.pileZ || 0);
-    const radialFromPile = Math.hypot(mesh.position.x - pileX, mesh.position.z - pileZ);
-    const edgeDelta = Math.max(0, radialFromPile - SAKA_VISUAL_LIFT_EDGE_START);
-    const extraLift = Math.min(SAKA_VISUAL_LIFT_EDGE_MAX, edgeDelta * SAKA_VISUAL_LIFT_EDGE_FACTOR);
-    return SAKA_VISUAL_LIFT_BASE + extraLift;
-  }
-
   function syncVisualItem(item) {
     if (!item?.mesh || !item?.visual?.anchor) return;
     const anchor = item.visual.anchor;
@@ -564,9 +426,19 @@
     if (item.visual?.kind === 'saka') {
       // Visual-only anti-clipping lift. It does not touch Havok physics.
       // The extra lift is radial, so it also works on the left/right edges,
-      // not only on the far Z edge. Shared with sakaScreenPosition() so the
-      // tap/drag hit-test lines up with where SAKA is actually drawn.
-      anchor.position.y += sakaVisualLiftY(item.mesh);
+      // not only on the far Z edge.
+      const pileX = Number(tuning.pileX || 0);
+      const pileZ = Number(tuning.pileZ || 0);
+      const radialFromPile = Math.hypot(
+        item.mesh.position.x - pileX,
+        item.mesh.position.z - pileZ
+      );
+      const edgeDelta = Math.max(0, radialFromPile - SAKA_VISUAL_LIFT_EDGE_START);
+      const extraLift = Math.min(
+        SAKA_VISUAL_LIFT_EDGE_MAX,
+        edgeDelta * SAKA_VISUAL_LIFT_EDGE_FACTOR
+      );
+      anchor.position.y += SAKA_VISUAL_LIFT_BASE + extraLift;
     }
     if (item.mesh.rotationQuaternion) {
       if (!anchor.rotationQuaternion) anchor.rotationQuaternion = BABYLON.Quaternion.Identity();
@@ -585,7 +457,7 @@
 
   function applyDomTuning() {
     const root = document.documentElement;
-    root.style.setProperty('--field-width', `${Number(tuning.fieldWidth)}%`);
+    root.style.setProperty('--field-width', `${Number(tuning.fieldWidth)}vw`);
     root.style.setProperty('--field-bottom', `${Number(tuning.fieldBottom)}px`);
     root.style.setProperty('--field-x', `${Number(tuning.fieldX)}px`);
     root.style.setProperty('--bg-scale', String(Number(tuning.bgScale)));
@@ -620,7 +492,7 @@
 
   function tuneNumberLabel(key, value) {
     const v = Number(value);
-    if (['fieldWidth'].includes(key)) return `${Math.round(v)}%`;
+    if (['fieldWidth'].includes(key)) return `${Math.round(v)}vw`;
     if (['fieldBottom','fieldX','bgX','bgY'].includes(key)) return `${Math.round(v)}px`;
     if (['bgScale','chukoScale','chukoModelScale','khanModelScale','sakaModelScale'].includes(key)) return `${v.toFixed(2)}×`;
     if (['sakaModelYawDeg','sakaModelPitchDeg','sakaModelRollDeg'].includes(key)) return `${Math.round(v)}°`; 
@@ -714,7 +586,7 @@
     console.error(error);
     ui.fatal.hidden = false;
     ui.fatalText.textContent = String(error?.message || error || 'Unknown error');
-    if (ui.action) ui.action.disabled = true;
+    ui.throwBtn.disabled = true;
   }
 
   function isMobile() {
@@ -1319,27 +1191,10 @@
 
     const d = C.pieces.chuko;
     const pileScale = pilePieceScale();
-    // Bake the intended gameplay scale directly into the geometry/physics
-    // dims instead of scaling the mesh node after the fact. makeOrganicBone()
-    // builds real vertex positions from these numbers, and the CONVEX_HULL
-    // PhysicsAggregate created right after captures that geometry at whatever
-    // size it has at that moment - a later `mesh.scaling.setAll(pileScale)`
-    // (applyPilePieceScale()) never reaches the already-built Havok shape, so
-    // the collider used to stay full-size while the pile-placement math
-    // elsewhere assumed a `pileScale`-sized piece. That gap left an
-    // oversized, invisible physics pile: SAKA rested on top of it well above
-    // where the pieces are actually drawn and the contact trigger never saw
-    // a real hit.
-    const chukoPhysicsDims = {
-      width: d.width * pileScale,
-      height: d.height * pileScale,
-      depth: d.depth * pileScale,
-      mass: d.mass
-    };
     for (let i = 0; i < C.pile.chukoCount; i++) {
       const item = createPiece(
         `chuko-${i+1}`,
-        chukoPhysicsDims,
+        d,
         new BABYLON.Vector3(0, 4 + i * 0.03, 0),
         chukoColors[i % chukoColors.length],
         false,
@@ -1383,18 +1238,6 @@
     sakaMesh.isVisible = !sakaVisual;
     bodies.push({ mesh: sakaMesh, aggregate, role: 'saka' });
     roundPool.saka = { mesh: sakaMesh, aggregate, visual: sakaVisual };
-
-    // Real collision detection for the deterministic scatter trigger - see
-    // onSakaCollision(). Enabled once here since this body is pooled/reused
-    // for every round.
-    try {
-      aggregate.body.setCollisionCallbackEnabled(true);
-      aggregate.body.getCollisionObservable().add(onSakaCollision);
-      debugLog('SAKA collision callback registered OK', {});
-    } catch (err) {
-      console.warn('[CHUKO 0.12.3] SAKA collision callback unavailable, relying on the height/radius fallback only', err);
-      debugLog('SAKA collision callback FAILED to register', { error: String(err) });
-    }
 
     roundPool.initialized = true;
     applyAllVisualTuning();
@@ -1490,615 +1333,84 @@
     scenarioRuntime.active = false;
   }
 
-  function tr(key) {
-    const lang = DICT[gameState.language] || DICT.RU || {};
-    return lang[key] || DICT.RU?.[key] || key;
-  }
-
   function formatMoney(value) {
-    if (value == null || !Number.isFinite(Number(value))) return '—';
-    return Number(value).toLocaleString('ru-RU');
+    const n = Number(value || 0);
+    return `${Number.isInteger(n) ? n : n.toFixed(2)} ${gameState.currencyDisplay || gameState.currency}`;
   }
 
   function currentTicketLabel() {
     return gameState.ticket?.ticketId ? `#${gameState.ticket.ticketId}` : '—';
   }
 
-  function applyTranslations() {
-    document.documentElement.lang = gameState.language === 'KG' ? 'ky' : 'ru';
-    document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = tr(el.dataset.i18n); });
-    renderModeSwitch();
-    renderAudioControls();
-    renderTicketNumber();
-    renderPayoutGrid();
-    renderState();
-  }
-
-  // --- Audio (ported from CHUKO v20.61) -------------------------------
-  function saveAudioSettings() {
-    try {
-      localStorage.setItem('x2-chuko-sound', audioSettings.soundEnabled ? '1' : '0');
-      localStorage.setItem('x2-chuko-music', audioSettings.musicEnabled ? '1' : '0');
-    } catch (_) {}
-  }
-
-  function ensureAudioContext() {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return Promise.resolve(null);
-    if (!audioRuntime.ctx) {
-      const ctx = new AudioCtx();
-      const master = ctx.createGain();
-      const sfxGain = ctx.createGain();
-      const musicGain = ctx.createGain();
-      master.gain.value = 1;
-      sfxGain.gain.value = audioSettings.soundEnabled ? audioSettings.soundVolume : 0;
-      musicGain.gain.value = audioSettings.musicEnabled ? audioSettings.musicVolume : 0;
-      sfxGain.connect(master); musicGain.connect(master); master.connect(ctx.destination);
-      audioRuntime.ctx = ctx; audioRuntime.master = master; audioRuntime.sfxGain = sfxGain; audioRuntime.musicGain = musicGain;
-    }
-    const ctx = audioRuntime.ctx;
-    const resume = ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : Promise.resolve();
-    return resume.then(() => ctx);
-  }
-
-  function unlockAudio() {
-    ensureAudioContext().then(() => { if (audioSettings.musicEnabled) startMusicLoop(false); });
-  }
-
-  function updateAudioGains() {
-    if (!audioRuntime.ctx) return;
-    const now = audioRuntime.ctx.currentTime;
-    audioRuntime.sfxGain?.gain.setTargetAtTime(audioSettings.soundEnabled ? audioSettings.soundVolume : 0, now, .025);
-    audioRuntime.musicGain?.gain.setTargetAtTime(audioSettings.musicEnabled ? audioSettings.musicVolume : 0, now, .05);
-    if (audioRuntime.musicElement) audioRuntime.musicElement.volume = audioSettings.musicEnabled ? audioSettings.musicVolume : 0;
-  }
-
-  function renderAudioControls() {
-    if (ui.sound) {
-      ui.sound.classList.toggle('on', audioSettings.soundEnabled);
-      ui.sound.textContent = audioSettings.soundEnabled ? '🔊' : '🔇';
-      ui.sound.title = tr('sound');
-      ui.sound.setAttribute('aria-pressed', audioSettings.soundEnabled ? 'true' : 'false');
-    }
-    if (ui.music) {
-      ui.music.classList.toggle('on', audioSettings.musicEnabled);
-      ui.music.textContent = audioSettings.musicEnabled ? '♫' : '♫×';
-      ui.music.title = tr('music');
-      ui.music.setAttribute('aria-pressed', audioSettings.musicEnabled ? 'true' : 'false');
-    }
-  }
-
-  function toggleSound() {
-    audioSettings.soundEnabled = !audioSettings.soundEnabled;
-    saveAudioSettings();
-    ensureAudioContext().then(() => { updateAudioGains(); if (audioSettings.soundEnabled) playUiTone(); });
-    renderAudioControls();
-  }
-
-  function toggleMusic() {
-    audioSettings.musicEnabled = !audioSettings.musicEnabled;
-    saveAudioSettings();
-    ensureAudioContext().then(() => {
-      updateAudioGains();
-      if (audioSettings.musicEnabled) startMusicLoop(true); else stopMusicLoop();
-    });
-    renderAudioControls();
-  }
-
-  function playEffectFile(kind, volumeScale = 1) {
-    if (!audioSettings.soundEnabled) return;
-    const src = soundFiles[kind];
-    if (!src) return;
-    const audio = new Audio(src);
-    audio.preload = 'auto';
-    audio.volume = Math.max(0, Math.min(1, effectFileVolume * volumeScale));
-    const p = audio.play();
-    if (p?.catch) p.catch(() => {});
-  }
-
-  function tone({ frequency = 440, endFrequency = null, duration = .08, gain = .10, type = 'sine', delay = 0 } = {}) {
-    const ctx = audioRuntime.ctx;
-    if (!ctx || ctx.state !== 'running' || !audioRuntime.sfxGain) return;
-    const start = ctx.currentTime + Math.max(0, delay);
-    const end = start + Math.max(.02, duration);
-    const osc = ctx.createOscillator();
-    const amp = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(Math.max(20, frequency), start);
-    if (Number.isFinite(endFrequency)) osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), end);
-    amp.gain.setValueAtTime(.0001, start);
-    amp.gain.exponentialRampToValueAtTime(Math.max(.0002, gain), start + Math.min(.018, duration * .25));
-    amp.gain.exponentialRampToValueAtTime(.0001, end);
-    osc.connect(amp); amp.connect(audioRuntime.sfxGain);
-    osc.start(start); osc.stop(end + .02);
-  }
-
-  function playUiTone() {
-    if (!audioSettings.soundEnabled) return;
-    ensureAudioContext().then(() => tone({ frequency: 640, endFrequency: 760, duration: .055, gain: .055, type: 'sine' }));
-  }
-
-  function playResultTone(win) {
-    if (!audioSettings.soundEnabled) return;
-    ensureAudioContext().then(() => {
-      if (Number(win) > 0) {
-        tone({ frequency: 523, duration: .12, gain: .07, type: 'sine' });
-        tone({ frequency: 659, duration: .14, gain: .07, type: 'sine', delay: .11 });
-        tone({ frequency: 784, duration: .18, gain: .08, type: 'sine', delay: .22 });
-      } else {
-        tone({ frequency: 230, endFrequency: 175, duration: .22, gain: .055, type: 'triangle' });
-      }
-    });
-  }
-
-  function chooseRandomVoiceTag() {
-    if (!voiceTags.length) return -1;
-    if (voiceTags.length === 1) return 0;
-    let next = audioRuntime.voiceTagIndex;
-    while (next === audioRuntime.voiceTagIndex) next = Math.floor(Math.random() * voiceTags.length);
-    return next;
-  }
-
-  function clearVoiceTimer() {
-    if (audioRuntime.voiceTimer) { clearTimeout(audioRuntime.voiceTimer); audioRuntime.voiceTimer = null; }
-  }
-
-  function restoreMusicAfterVoice() {
-    if (audioRuntime.musicElement) audioRuntime.musicElement.volume = audioSettings.musicEnabled ? audioSettings.musicVolume : 0;
-  }
-
-  function playVoiceTag() {
-    if (!audioSettings.musicEnabled || !voiceTags.length) return;
-    const index = chooseRandomVoiceTag();
-    if (index < 0) return;
-    if (audioRuntime.voiceElement) { audioRuntime.voiceElement.pause(); audioRuntime.voiceElement = null; }
-    const voice = new Audio(voiceTags[index]);
-    voice.preload = 'auto';
-    voice.volume = voiceSettings.volume;
-    if (audioRuntime.musicElement) audioRuntime.musicElement.volume = audioSettings.musicVolume * voiceSettings.duckFactor;
-    const onEnd = () => { restoreMusicAfterVoice(); audioRuntime.voiceElement = null; if (audioSettings.musicEnabled) scheduleVoiceTag(); };
-    voice.addEventListener('ended', onEnd, { once: true });
-    voice.addEventListener('error', onEnd, { once: true });
-    audioRuntime.voiceElement = voice;
-    audioRuntime.voiceTagIndex = index;
-    const promise = voice.play();
-    if (promise?.catch) promise.catch(onEnd);
-  }
-
-  function scheduleVoiceTag() {
-    clearVoiceTimer();
-    if (!audioSettings.musicEnabled || !voiceTags.length) return;
-    const min = Math.min(voiceSettings.minDelayMs, voiceSettings.maxDelayMs);
-    const max = Math.max(voiceSettings.minDelayMs, voiceSettings.maxDelayMs);
-    const delay = min + Math.random() * (max - min);
-    audioRuntime.voiceTimer = setTimeout(() => { audioRuntime.voiceTimer = null; playVoiceTag(); }, delay);
-  }
-
-  function chooseRandomMusicTrack() {
-    if (!musicTracks.length) return -1;
-    if (musicTracks.length === 1) return 0;
-    let next = audioRuntime.musicTrackIndex;
-    while (next === audioRuntime.musicTrackIndex) next = Math.floor(Math.random() * musicTracks.length);
-    return next;
-  }
-
-  function playMusicTrack(index) {
-    if (!audioSettings.musicEnabled || !musicTracks.length) return;
-    const safeIndex = Number.isInteger(index) && index >= 0 && index < musicTracks.length ? index : chooseRandomMusicTrack();
-    if (safeIndex < 0) return;
-    if (audioRuntime.musicElement) { audioRuntime.musicElement.pause(); audioRuntime.musicElement.removeAttribute('src'); audioRuntime.musicElement.load(); }
-    const audio = new Audio(musicTracks[safeIndex]);
-    audio.preload = 'auto';
-    audio.volume = audioSettings.musicVolume;
-    audio.addEventListener('ended', () => { if (audioSettings.musicEnabled) playMusicTrack(chooseRandomMusicTrack()); }, { once: true });
-    audio.addEventListener('error', () => {
-      if (!audioSettings.musicEnabled) return;
-      const next = chooseRandomMusicTrack();
-      if (next >= 0 && next !== safeIndex) setTimeout(() => playMusicTrack(next), 350);
-    }, { once: true });
-    audioRuntime.musicElement = audio;
-    audioRuntime.musicTrackIndex = safeIndex;
-    const promise = audio.play();
-    if (promise?.catch) promise.catch(() => {});
-  }
-
-  function startMusicLoop(forceNew = false) {
-    if (!audioSettings.musicEnabled || !musicTracks.length) return;
-    if (!forceNew && audioRuntime.musicElement && !audioRuntime.musicElement.paused) return;
-    playMusicTrack(chooseRandomMusicTrack());
-    scheduleVoiceTag();
-  }
-
-  function stopMusicLoop() {
-    clearVoiceTimer();
-    if (audioRuntime.voiceElement) { audioRuntime.voiceElement.pause(); audioRuntime.voiceElement.currentTime = 0; audioRuntime.voiceElement = null; }
-    if (audioRuntime.musicElement) { audioRuntime.musicElement.pause(); audioRuntime.musicElement.currentTime = 0; audioRuntime.musicElement = null; }
-  }
-
-  function syncAudioWithState() {
-    if (audioRuntime.lastPhase === gameState.phase) return;
-    const previous = audioRuntime.lastPhase;
-    audioRuntime.lastPhase = gameState.phase;
-    if (gameState.phase === 'settled' && previous === 'throwing') playResultTone(gameState.ticket?.win || 0);
-  }
-
-  // --- Local recent-ticket history (convenience cache only) -----------
-  function localTicketHistoryLimit() {
-    const raw = Number(LMS_CFG.localTicketHistoryLimit ?? 5);
-    return Math.max(1, Math.min(50, Number.isFinite(raw) ? Math.floor(raw) : 5));
-  }
-
-  function localTicketHistoryKey(mode = gameState.mode) {
-    const normalizedMode = String(mode).toLowerCase() === 'demo' ? 'demo' : 'real';
-    return `x2-chuko-ticket-history:${LMS_CFG.gameId || 'CHUKO'}:${normalizedMode}`;
-  }
-
-  function readLocalTicketHistory(mode = gameState.mode) {
-    try {
-      const raw = localStorage.getItem(localTicketHistoryKey(mode));
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter(item => item && item.ticketId != null && item.ticketId !== '' && Number.isFinite(Number(item.win)))
-        .slice(0, localTicketHistoryLimit());
-    } catch (_) { return []; }
-  }
-
-  function saveCompletedTicketLocally(completedTicket, mode = gameState.mode) {
-    if (!completedTicket || completedTicket.ticketId == null || completedTicket.ticketId === '') return;
-    const item = { ticketId: String(completedTicket.ticketId), win: Number(completedTicket.win || 0) };
-    const current = readLocalTicketHistory(mode).filter(row => String(row.ticketId) !== item.ticketId);
-    current.unshift(item);
-    try { localStorage.setItem(localTicketHistoryKey(mode), JSON.stringify(current.slice(0, localTicketHistoryLimit()))); } catch (_) {}
-  }
-
-  function renderLocalTicketHistory() {
-    if (!ui.ticketsList) return;
-    const rows = readLocalTicketHistory(gameState.mode);
-    ui.ticketsList.innerHTML = '';
-    if (!rows.length) {
-      const empty = document.createElement('div');
-      empty.className = 'tickets-empty';
-      empty.textContent = tr('noRecentTickets');
-      ui.ticketsList.appendChild(empty);
-      return;
-    }
-    rows.forEach(item => {
-      const row = document.createElement('div');
-      row.className = 'ticket-history-row';
-      const id = document.createElement('div');
-      id.className = 'ticket-history-id';
-      id.textContent = `№ ${item.ticketId}`;
-      id.title = `${tr('ticket')} № ${item.ticketId}`;
-      const win = document.createElement('div');
-      win.className = 'ticket-history-win';
-      win.textContent = formatMoney(item.win);
-      row.append(id, win);
-      ui.ticketsList.appendChild(row);
-    });
-  }
-
-  function renderTicketNumber() {
-    if (!ui.ticketNumber) return;
-    let value = '—';
-    if (gameState.phase === 'requesting') value = '…';
-    else if (gameState.ticket?.ticketId != null && gameState.ticket.ticketId !== '') value = String(gameState.ticket.ticketId);
-    ui.ticketNumber.textContent = `№ ${value}`;
-    ui.ticketNumber.title = value === '—' || value === '…' ? tr('ticket') : `${tr('ticket')} № ${value}`;
-  }
-
-  // --- Denomination strip (track + arrows) -----------------------------
-  function updateDenominationArrows() {
-    if (!ui.denomViewport || !ui.denomPrev || !ui.denomNext) return;
-    const maxScroll = Math.max(0, ui.denomViewport.scrollWidth - ui.denomViewport.clientWidth);
-    const overflowing = maxScroll > 2;
-    const left = ui.denomViewport.scrollLeft;
-    ui.denomPrev.classList.toggle('visible', overflowing && left > 2);
-    ui.denomNext.classList.toggle('visible', overflowing && left < maxScroll - 2);
-    ui.denomPrev.disabled = !overflowing || left <= 2;
-    ui.denomNext.disabled = !overflowing || left >= maxScroll - 2;
-  }
-
-  function centerActiveDenomination() {
-    if (!ui.denomViewport || !ui.denomTrack) return;
-    const active = ui.denomTrack.querySelector('.denom-option.active');
-    if (!active) return;
-    const target = active.offsetLeft - (ui.denomViewport.clientWidth - active.offsetWidth) / 2;
-    const maxScroll = Math.max(0, ui.denomViewport.scrollWidth - ui.denomViewport.clientWidth);
-    ui.denomViewport.scrollLeft = Math.max(0, Math.min(maxScroll, target));
-    updateDenominationArrows();
-  }
-
-  function renderDenominationButtons({ centerActive = false } = {}) {
-    if (!ui.denomTrack) return;
-    ui.denomTrack.innerHTML = '';
-    const enabled = ['idle', 'settled'].includes(gameState.phase) && !gameState.busy && !autoPlay.active;
-    const values = [...new Set((gameState.denominations || []).map(Number).filter(v => Number.isFinite(v) && v > 0))];
+  function renderDenominationButtons() {
+    const bar = document.querySelector('.denom-bar');
+    if (!bar) return;
+    const unit = bar.querySelector('em');
+    bar.querySelectorAll('[data-denom]').forEach(node => node.remove());
+    const values = [...new Set((gameState.denominations || []).map(Number).filter(v=>Number.isFinite(v)&&v>0))];
     values.forEach(value => {
       const b = document.createElement('button');
+      b.className = 'denom';
       b.type = 'button';
-      b.className = 'denom-option' + (Number(value) === Number(gameState.denomination) ? ' active' : '');
-      b.textContent = formatMoney(value);
-      b.disabled = !enabled;
+      b.dataset.denom = String(value);
+      b.textContent = String(value);
       b.addEventListener('click', () => {
-        if (!['idle', 'settled'].includes(gameState.phase) || gameState.busy) return;
+        if (!['idle','settled'].includes(gameState.phase) || gameState.busy) return;
         gameState.denomination = value;
         gameState.ticket = null;
         gameState.ticketReady = false;
-        autoPlay.selected = null;
         hideGameResult();
-        renderState();
-        LMS?.emit?.('X2_GAME_DENOMINATION_CHANGED', { gameId: LMS_CFG.gameId || 'CHUKO', denomination: value, currency: gameState.currency, mode: gameState.mode });
+        updateGameHud();
+        LMS?.emit?.('X2_GAME_DENOMINATION_CHANGED', {gameId:LMS_CFG.gameId || 'CHUKO', denomination:value, currency:gameState.currency, mode:gameState.mode});
       });
-      ui.denomTrack.appendChild(b);
-    });
-    requestAnimationFrame(() => { if (centerActive) centerActiveDenomination(); else updateDenominationArrows(); });
-  }
-
-  function renderModeSwitch() {
-    if (!ui.modeSwitch) return;
-    ui.modeSwitch.classList.toggle('hidden', !gameState.demoAllowed);
-    ui.modeSwitch.querySelectorAll('button').forEach(b => {
-      b.classList.toggle('active', b.dataset.mode === gameState.mode);
-      b.textContent = b.dataset.mode === 'demo' ? tr('demo') : tr('real');
-      b.disabled = !['idle', 'settled'].includes(gameState.phase) || autoPlay.active;
+      bar.insertBefore(b, unit);
     });
   }
 
-  function renderScore() {
-    const physical = computePhysicalResult();
-    if (ui.knocked) ui.knocked.textContent = String(physical.out || 0);
-    const scoreWin = (gameState.ticket && gameState.phase === 'settled') ? Number(gameState.ticket.win || 0) : 0;
-    if (ui.scoreWin) ui.scoreWin.textContent = formatMoney(scoreWin);
-    if (ui.khan) {
-      if (physical.khanOut) ui.khan.textContent = '×5';
-      else if (gameState.phase === 'settled') ui.khan.textContent = tr('stood');
-      else ui.khan.textContent = '—';
+  function renderGameControls() {
+    const phase = gameState.phase;
+    const canConfigure = ['idle','settled'].includes(phase) && !gameState.busy;
+    document.querySelectorAll('[data-denom]').forEach(btn => btn.disabled = !canConfigure);
+    if (ui.demoModeBtn) ui.demoModeBtn.disabled = !canConfigure || !gameState.demoAllowed;
+    if (ui.realModeBtn) ui.realModeBtn.disabled = !canConfigure;
+    if (ui.throwBtn) {
+      ui.throwBtn.disabled = phase !== 'ready' || !gameState.ticketReady;
+      ui.throwBtn.textContent = phase === 'throwing' ? 'САКА В ПОЛЁТЕ…' : 'БРОСИТЬ САКА';
+    }
+    if (ui.resetBtn) {
+      ui.resetBtn.disabled = !canConfigure;
+      ui.resetBtn.textContent = gameState.busy ? 'ЗАГРУЗКА…' : 'НОВАЯ ИГРА';
     }
   }
 
-  function renderPayoutGrid() {
-    if (!ui.payoutGrid || !ScenarioCfg) return;
-    ui.payoutGrid.innerHTML = '';
-    ScenarioCfg.ids.forEach(id => {
-      const item = ScenarioCfg.scenarios[id];
-      if (!item) return;
-      const row = document.createElement('div');
-      row.className = 'payout-item' + (item.khan ? ' payout-khan' : '');
-      const label = document.createElement('span');
-      label.textContent = item.khan ? `${item.regular} чүкө + ХАН` : `${item.regular} чүкө`;
-      const value = document.createElement('strong');
-      value.textContent = `×${item.demoMultiplier}`;
-      row.append(label, value);
-      ui.payoutGrid.appendChild(row);
+  function updateGameHud() {
+    if (ui.ticketNo) ui.ticketNo.textContent = currentTicketLabel();
+    if (ui.balanceValue) ui.balanceValue.textContent = formatMoney(gameState.balance);
+    document.querySelectorAll('[data-denom]').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.denom) === gameState.denomination);
     });
-  }
-
-  // --- Autoplay (ported from CHUKO v20.61) -----------------------------
-  function configuredAutoPlayCounts() {
-    return [...new Set((Array.isArray(LMS_CFG.autoPlayCounts) ? LMS_CFG.autoPlayCounts : [5, 10, 20, 50])
-      .map(Number).filter(n => Number.isInteger(n) && n > 0))];
-  }
-
-  function clearAutoTimers() {
-    if (autoPlay.nextTimer) { clearTimeout(autoPlay.nextTimer); autoPlay.nextTimer = null; }
-    if (autoPlay.throwTimer) { clearTimeout(autoPlay.throwTimer); autoPlay.throwTimer = null; }
-  }
-
-  function closeAutoMenu() {
-    ui.autoMenu?.classList.remove('open');
-    ui.autoMenu?.setAttribute('aria-hidden', 'true');
-  }
-
-  function renderAutoPlayMenu() {
-    if (!ui.autoCounts) return;
-    ui.autoCounts.innerHTML = '';
-    configuredAutoPlayCounts().forEach(count => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'autoplay-count';
-      b.textContent = String(count);
-      b.addEventListener('click', e => {
-        e.stopPropagation();
-        autoPlay.selected = count;
-        closeAutoMenu();
-        renderAutoPlayButton();
-      });
-      ui.autoCounts.appendChild(b);
-    });
-    if (ui.autoMenuTitle) ui.autoMenuTitle.textContent = tr('autoGames');
-  }
-
-  function renderAutoPlayButton() {
-    if (!ui.autoPlay) return;
-    const available = ['idle', 'settled'].includes(gameState.phase) && !gameState.busy;
-    ui.autoPlay.classList.toggle('active', autoPlay.active);
-    if (autoPlay.active) {
-      const current = Math.min(autoPlay.total, autoPlay.completed + 1);
-      ui.autoPlay.textContent = autoPlay.stopRequested ? tr('autoStopping') : `${tr('autoStop')} ${current}/${autoPlay.total}`;
-      ui.autoPlay.disabled = autoPlay.stopRequested;
-      return;
-    }
-    if (Number.isInteger(autoPlay.selected) && autoPlay.selected > 0) {
-      ui.autoPlay.textContent = `${tr('autoStart')} ${autoPlay.selected}`;
-      ui.autoPlay.disabled = !available;
-      return;
-    }
-    ui.autoPlay.textContent = tr('autoPlay');
-    ui.autoPlay.disabled = !available;
-  }
-
-  function finishAutoPlay() {
-    clearAutoTimers();
-    autoPlay.active = false;
-    autoPlay.stopRequested = false;
-    autoPlay.selected = null;
-    autoPlay.total = 0;
-    autoPlay.completed = 0;
-    autoPlay.remaining = 0;
-    autoPlay.fixedStake = null;
-    closeAutoMenu();
-    renderState();
-  }
-
-  function requestAutoStop() {
-    if (!autoPlay.active) return;
-    autoPlay.stopRequested = true;
-    closeAutoMenu();
-    if (['idle', 'settled'].includes(gameState.phase)) { finishAutoPlay(); return; }
-    renderAutoPlayButton();
-  }
-
-  function scheduleAutoThrow() {
-    if (!autoPlay.active || gameState.phase !== 'ready') return;
-    if (autoPlay.throwTimer) clearTimeout(autoPlay.throwTimer);
-    const delay = Math.max(0, Number(LMS_CFG.autoPlayThrowDelayMs ?? 450));
-    autoPlay.throwTimer = setTimeout(() => {
-      autoPlay.throwTimer = null;
-      if (autoPlay.active && gameState.phase === 'ready') throwSaka();
-    }, delay);
-  }
-
-  function celebrationHoldMs() {
-    const zeroHold = Math.max(0, Number(LMS_CFG.autoPlayNextRoundDelayMs ?? 900));
-    if (!gameState.ticket || Number(gameState.ticket.win || 0) <= 0) return zeroHold;
-    // Confetti lifetime (see launchConfetti()) plus its max stagger delay.
-    const khan = !!computePhysicalResult().khanOut;
-    const confettiDelay = khan ? 480 : 280;
-    const confettiMs = 2600 + confettiDelay;
-    return confettiMs + 180;
-  }
-
-  function scheduleNextAutoRound() {
-    if (!autoPlay.active || autoPlay.stopRequested || autoPlay.remaining <= 0) { finishAutoPlay(); return; }
-    if (autoPlay.nextTimer) clearTimeout(autoPlay.nextTimer);
-    const delay = celebrationHoldMs();
-    autoPlay.nextTimer = setTimeout(() => {
-      autoPlay.nextTimer = null;
-      if (!autoPlay.active || autoPlay.stopRequested) { finishAutoPlay(); return; }
-      if (['idle', 'settled'].includes(gameState.phase)) requestNewGame();
-    }, delay);
-  }
-
-  function handleAutoRoundComplete() {
-    if (!autoPlay.active) return;
-    autoPlay.completed += 1;
-    autoPlay.remaining = Math.max(0, autoPlay.total - autoPlay.completed);
-    if (autoPlay.stopRequested || autoPlay.remaining <= 0) { finishAutoPlay(); return; }
-    renderAutoPlayButton();
-    scheduleNextAutoRound();
-  }
-
-  function startAutoPlay(count) {
-    const total = Number(count);
-    if (autoPlay.active || !['idle', 'settled'].includes(gameState.phase) || !configuredAutoPlayCounts().includes(total)) return;
-    clearAutoTimers();
-    closeAutoMenu();
-    autoPlay.active = true;
-    autoPlay.stopRequested = false;
-    autoPlay.selected = null;
-    autoPlay.total = total;
-    autoPlay.completed = 0;
-    autoPlay.remaining = total;
-    autoPlay.fixedStake = Number(gameState.denomination);
-    renderState();
-    autoPlay.nextTimer = setTimeout(() => {
-      autoPlay.nextTimer = null;
-      if (autoPlay.active && ['idle', 'settled'].includes(gameState.phase)) requestNewGame();
-    }, 120);
-  }
-
-  // --- Celebration: DOM confetti (no PixiJS in the 3D build) -----------
-  function isMobileEffectsDevice() {
-    const ua = navigator.userAgent || '';
-    const isiOS = /iPhone|iPad|iPod/i.test(ua);
-    const narrow = Math.min(window.innerWidth || 9999, window.innerHeight || 9999) < 700;
-    return isiOS || narrow;
-  }
-
-  function clearCelebration() {
-    if (ui.celebration) ui.celebration.innerHTML = '';
-  }
-
-  function launchConfetti({ khan = false } = {}) {
-    if (!ui.celebration) return;
-    const requested = khan ? 54 : 22;
-    const mobile = isMobileEffectsDevice();
-    const count = mobile ? Math.min(34, Math.max(8, Math.round(requested * 0.6))) : requested;
-    const palette = khan
-      ? ['#ffd45d', '#dbe63c', '#ffffff', '#ff9f3f', '#5fb4ff', '#f26cff']
-      : ['#dbe63c', '#ffffff', '#5fb4ff', '#ffd45d'];
-    const frag = document.createDocumentFragment();
-    for (let i = 0; i < count; i++) {
-      const piece = document.createElement('div');
-      piece.className = 'confetti-piece';
-      const size = 4 + Math.random() * 6;
-      const height = size * (1.25 + Math.random() * 0.7);
-      const left = Math.random() * 100;
-      const dx = (Math.random() - 0.5) * 150;
-      const dur = 1600 + Math.random() * 1000;
-      const delay = Math.random() * (khan ? 480 : 280);
-      const rot = 480 + Math.random() * 480;
-      const flip = 360 + Math.random() * 360;
-      piece.style.background = palette[i % palette.length];
-      piece.style.setProperty('--w', `${size}px`);
-      piece.style.setProperty('--h', `${height}px`);
-      piece.style.setProperty('--left', `${left}%`);
-      piece.style.setProperty('--dx', `${dx}px`);
-      piece.style.setProperty('--dur', `${dur}ms`);
-      piece.style.setProperty('--delay', `${delay}ms`);
-      piece.style.setProperty('--rot', `${rot}deg`);
-      piece.style.setProperty('--flip', `${flip}deg`);
-      frag.appendChild(piece);
-    }
-    ui.celebration.appendChild(frag);
-  }
-
-  function launchCelebration({ khan = false } = {}) {
-    clearCelebration();
-    launchConfetti({ khan });
-  }
-
-  function showResultToast() {
-    if (!gameState.ticket || !ui.toast) return;
-    const win = Number(gameState.ticket.win || 0);
-    const khanOut = !!computePhysicalResult().khanOut;
-    ui.toast.classList.remove('zero', 'khan-win', 'show');
-    ui.toast.textContent = formatMoney(win);
-    if (win <= 0) ui.toast.classList.add('zero');
-    else if (khanOut) { ui.toast.classList.add('khan-win'); launchCelebration({ khan: true }); }
-    else launchCelebration({ khan: false });
-    void ui.toast.offsetWidth;
-    ui.toast.classList.add('show');
-    if (win > 0) playEffectFile('win', 0.78);
+    ui.demoModeBtn?.classList.toggle('active', gameState.mode === 'demo');
+    ui.realModeBtn?.classList.toggle('active', gameState.mode === 'real');
+    renderGameControls();
   }
 
   function hideGameResult() {
     gameState.resultShown = false;
-    if (ui.toast) ui.toast.classList.remove('show', 'zero', 'khan-win');
-    clearCelebration();
-  }
-
-  function showStatus(text = '') {
-    if (ui.status) ui.status.textContent = text;
+    if (ui.resultCard) {
+      ui.resultCard.hidden = true;
+      ui.resultCard.classList.remove('win');
+    }
   }
 
   function worldPointForWhiteMetric(angle, targetMetric, y=0.11) {
-    // The angle passed in is always measured around scatterPivot (the
-    // white ring's true on-screen centre, see updateScatterPivot()), not
-    // around the world origin and not around the tuned pile position -
-    // either mismatch silently skews every placement toward whichever
-    // direction reduces the offset between the two points.
-    const pileX = scatterPivot.x;
-    const pileZ = scatterPivot.z;
     let lo = 0.06;
     let hi = 3.20;
-    let best = new BABYLON.Vector3(pileX + Math.cos(angle)*1.5, y, pileZ + Math.sin(angle)*1.5);
+    let best = new BABYLON.Vector3(Math.cos(angle)*1.5, y, Math.sin(angle)*1.5);
     let bestDiff = Number.POSITIVE_INFINITY;
 
     for (let i=0;i<28;i++) {
       const r = (lo+hi)*0.5;
-      const probe = new BABYLON.Vector3(pileX + Math.cos(angle)*r, y, pileZ + Math.sin(angle)*r);
+      const probe = new BABYLON.Vector3(Math.cos(angle)*r, y, Math.sin(angle)*r);
       const metric = whiteRingMetricForWorld(probe);
       if (metric == null || !Number.isFinite(metric)) break;
       const diff = Math.abs(metric-targetMetric);
@@ -2127,13 +1439,10 @@
     let best = null;
     let bestSep = -1;
 
-    // Try angle + metric variations around the requested slot. Outside
-    // (targeted/выбитые) points get more wiggle room than before so the
-    // separation search can actually spread them apart instead of settling
-    // for a tight, near-identical radius/angle every time.
+    // Try angle + metric variations around the requested slot.
     for (let attempt = 0; attempt < 18; attempt++) {
-      const a = angle + (rng() - 0.5) * (inside ? 0.26 : 0.24);
-      const m = metric + (rng() - 0.5) * (inside ? 0.055 : 0.065);
+      const a = angle + (rng() - 0.5) * (inside ? 0.26 : 0.16);
+      const m = metric + (rng() - 0.5) * (inside ? 0.055 : 0.035);
       const p = worldPointForWhiteMetric(a, m, y);
       const sep = usedPoints.length
         ? Math.min(...usedPoints.map(other => pointDistanceXZ(p, other)))
@@ -2149,57 +1458,61 @@
     return best || worldPointForWhiteMetric(angle, metric, y);
   }
 
-  function keepWorldPointInsideScreen(point, fallbackAngle, requestedMetric, y, rng) {
+  function worldPointForRadius(angle, radius, y=0.11) {
+    return new BABYLON.Vector3(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+  }
+
+  function chooseSeparatedRadiusPoint(angle, radius, y, usedPoints, minSep, rng, angleJitter=0.16, radiusJitter=0.08) {
+    let best = null;
+    let bestSep = -1;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const a = angle + (rng() - 0.5) * angleJitter;
+      const r = Math.max(0.08, radius + (rng() - 0.5) * radiusJitter);
+      const p = worldPointForRadius(a, r, y);
+      const sep = usedPoints.length ? Math.min(...usedPoints.map(other => pointDistanceXZ(p, other))) : 999;
+      if (sep > bestSep) {
+        best = p;
+        bestSep = sep;
+      }
+      if (sep >= minSep) return p;
+    }
+    return best || worldPointForRadius(angle, radius, y);
+  }
+
+  function keepWorldRadiusPointInsideScreen(point, fallbackAngle, requestedRadius, y, rng, minRadius = 2.24) {
     if (!point || !ui.canvas) return point;
     const rect = ui.canvas.getBoundingClientRect();
-    const safe = { left: rect.left + rect.width*0.055, right: rect.right - rect.width*0.055,
-                   top: rect.top + rect.height*0.070, bottom: rect.bottom - rect.height*0.120 };
-    let metric = requestedMetric;
+    const safe = {
+      left: rect.left + rect.width * 0.090,
+      right: rect.right - rect.width * 0.090,
+      top: rect.top + rect.height * 0.090,
+      bottom: rect.bottom - rect.height * 0.165
+    };
+    let radius = requestedRadius;
     let best = point;
-    for (let i=0;i<10;i++) {
+    for (let i = 0; i < 22; i++) {
       const css = projectWorldToCss(best);
-      if (css && css.x>=safe.left && css.x<=safe.right && css.y>=safe.top && css.y<=safe.bottom) return best;
-      metric = Math.max(1.55, metric - 0.045);
-      best = worldPointForWhiteMetric(fallbackAngle + (rng()-0.5)*0.025, metric, y);
+      if (css && css.x >= safe.left && css.x <= safe.right && css.y >= safe.top && css.y <= safe.bottom) return best;
+      radius = Math.max(minRadius, radius - 0.11);
+      best = worldPointForRadius(fallbackAngle + (rng() - 0.5) * 0.012, radius, y);
     }
     return best;
   }
 
-  // The safe-rect check above is anchored to the CANVAS edges, not to the
-  // ring's actual on-screen position. Since the ring normally sits much
-  // closer to the top of the canvas than to the bottom (the bottom third of
-  // the screen is reserved for the score/action/denom UI), a piece aimed
-  // "up" hits the top margin far sooner than one aimed "down" hits the
-  // bottom margin - so upward throws were getting squashed back toward the
-  // centre while downward ones reached their full, intended spread. That
-  // reads as "the scatter leans toward the bottom half" even though the
-  // angles themselves are chosen with no such bias.
-  //
-  // Fix: sample many directions around the pivot, find the tightest
-  // (worst-case) direction's safe metric, and cap every direction to that
-  // same value. The result may sit a little more conservatively than the
-  // ideal outsideMax in every direction, but it is now symmetric - no
-  // direction is special-cased against another.
-  function computeUniformOutsideMetricCap(baseMetric, y = 0.10, samples = 16) {
-    if (!ui.canvas) return baseMetric;
+  function keepWorldPointInsideScreen(point, fallbackAngle, requestedMetric, y, rng) {
+    if (!point || !ui.canvas) return point;
     const rect = ui.canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return baseMetric;
-    const safe = { left: rect.left + rect.width*0.055, right: rect.right - rect.width*0.055,
-                   top: rect.top + rect.height*0.070, bottom: rect.bottom - rect.height*0.120 };
-    let minMetric = baseMetric;
-    for (let i=0;i<samples;i++) {
-      const angle = (i/samples) * Math.PI * 2;
-      let metric = baseMetric;
-      for (let iter=0;iter<12;iter++) {
-        const point = worldPointForWhiteMetric(angle, metric, y);
-        const css = point ? projectWorldToCss(point) : null;
-        if (css && css.x>=safe.left && css.x<=safe.right && css.y>=safe.top && css.y<=safe.bottom) break;
-        metric -= 0.04;
-        if (metric <= 1.02) { metric = 1.02; break; }
-      }
-      if (metric < minMetric) minMetric = metric;
+    const safe = { left: rect.left + rect.width*0.045, right: rect.right - rect.width*0.045,
+                   top: rect.top + rect.height*0.060, bottom: rect.bottom - rect.height*0.095 };
+    let metric = requestedMetric;
+    let best = point;
+    for (let i=0;i<12;i++) {
+      const css = projectWorldToCss(best);
+      if (css && css.x>=safe.left && css.x<=safe.right && css.y>=safe.top && css.y<=safe.bottom) return best;
+      metric = Math.max(1.82, metric - 0.055);
+      best = worldPointForWhiteMetric(fallbackAngle + (rng()-0.5)*0.020, metric, y);
     }
-    return minMetric;
+    return best;
   }
 
   function outsideFanOffset(order, count, step) {
@@ -2218,15 +1531,28 @@
     return (order % 2 ? 1 : -1) * (k + 0.5) * step;
   }
 
+  function currentPileCentre() {
+    const points = [];
+    roundPool?.chukos?.forEach(item => {
+      const p = item?.mesh?.position;
+      if (p) points.push(p);
+    });
+    if (!points.length) {
+      return { x: Number(tuning.pileX || 0), z: Number(tuning.pileZ || 0) };
+    }
+    const sum = points.reduce((acc,p)=>{ acc.x += p.x; acc.z += p.z; return acc; }, { x:0, z:0 });
+    return { x: sum.x / points.length, z: sum.z / points.length };
+  }
+
   function prepareScenarioLandingPlan(tp) {
     if (!scenarioRuntime.active || !scenarioRuntime.plan || !roundPool.initialized) return;
 
     const plan = scenarioRuntime.plan;
     const count = Math.max(0, Math.min(C.pile.chukoCount, Number(plan.regular || 0)));
     const rng = seededRng(`${scenarioRuntime.seed}|landing-plan-v2|${tp.x.toFixed(3)}|${tp.z.toFixed(3)}`);
-    const pivot = updateScatterPivot();
-    const pileX = pivot.x;
-    const pileZ = pivot.z;
+    const pileCentre = currentPileCentre();
+    const pileX = Number(pileCentre.x || 0);
+    const pileZ = Number(pileCentre.z || 0);
 
     // Select the actual chükö closest to the SAKA contact point BEFORE the throw.
     const scored = roundPool.chukos.map((item,index)=>({
@@ -2244,55 +1570,51 @@
     scenarioRuntime.khanOut = false;
     scenarioRuntime.targetsLockedAtImpact = true;
     scenarioRuntime.targetDirections = new Map();
+    scenarioRuntime.contactChukoIndex = scored.length ? scored[0].index : -1;
+    scenarioRuntime.contactPoint = scored.length ? {
+      x: scored[0].item?.mesh?.position?.x || tp.x,
+      z: scored[0].item?.mesh?.position?.z || tp.z
+    } : { x: tp.x, z: tp.z };
 
     const flightPlan = [];
     const usedLandingPoints = [];
     const insideIds = [...Array(C.pile.chukoCount).keys()]
       .filter(i=>!scenarioRuntime.targetIds.has(i));
 
-    // Scatter direction goes FROM the SAKA impact point THROUGH the pile centre
-    // and further beyond it. This matches the visual impulse of a top-down hit:
-    // hit at the bottom -> pieces travel through the centre toward the top, etc.
+    // Scatter direction goes FROM the visible SAKA contact point THROUGH the real
+    // pile centre and then further beyond it. Use the live average pile centre,
+    // not the tuning default, so bottom-edge hits really travel through the pile.
     const scatterAxisAngle = Math.atan2(pileZ - tp.z, pileX - tp.x);
 
-    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.38);
-    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.68);
-    const insideEdgeMin = Number(C.game?.scatterInsideEdgeMetricMin || 0.70);
-    const insideEdgeMax = Number(C.game?.scatterInsideEdgeMetricMax || 0.80);
-    const outsideMin = Number(C.game?.scatterOutsideMetricMin || 1.12);
-    const outsideMax = Number(C.game?.scatterOutsideMetricMax || 1.22);
-    const minSep = Number(C.game?.scatterMinSeparationWorld || 0.56);
-    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.68);
-    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.10);
+    const insideMin = Number(C.game?.scatterInsideMetricMin || 0.46);
+    const insideMax = Number(C.game?.scatterInsideMetricMax || 0.84);
+    const insideEdgeMin = Number(C.game?.scatterInsideEdgeMetricMin || 0.80);
+    const insideEdgeMax = Number(C.game?.scatterInsideEdgeMetricMax || 0.88);
+    const outsideMin = Number(C.game?.scenarioOutRadiusMin || 2.54);
+    const outsideMax = Number(C.game?.scenarioOutRadiusMax || 2.82);
+    const minSep = Number(C.game?.scatterMinSeparationWorld || 0.72);
+    const fanStep = Number(C.game?.scatterOutsideFanStepRad || 0.76);
+    const fanJitter = Number(C.game?.scatterOutsideFanJitterRad || 0.05);
 
     const durMin = Number(C.game?.scatterDurationMinMs || 430);
     const durMax = Number(C.game?.scatterDurationMaxMs || 690);
     const delayMax = Number(C.game?.scatterDelayMaxMs || 105);
 
-    // See computeUniformOutsideMetricCap() above: without this, pieces aimed
-    // toward whichever screen direction has the least safe margin (usually
-    // "up", since the bottom of the screen is reserved for UI) get clamped
-    // back much harder than pieces aimed the other way, making the scatter
-    // look biased toward one half of the circle. Capping every direction to
-    // the same worst-case-safe value keeps it visually even.
-    const outsideMetricCap = computeUniformOutsideMetricCap(outsideMax, 0.10);
-
-    // OUT points: the WHITE CHALK CIRCLE is the boundary.
-    // Place pieces clearly outside it (metric > 1), but not at the outer green edge.
-    // Angles fan widely around the actual impact direction.
+    // OUT points: clearly beyond the green carpet edge, but still inside the screen.
+    // They fly through the centre and keep separating left/right from the impact axis.
     targetIds.forEach((id,order)=>{
       const item = roundPool.chukos[id];
       if (!item?.mesh) return;
 
       const offset = outsideFanOffset(order, targetIds.length, fanStep);
       const angle = scatterAxisAngle + offset + (rng()-0.5)*fanJitter;
-      const metric = Math.min(outsideMetricCap, outsideMin + (outsideMax-outsideMin)*(0.20 + 0.80*rng()));
+      const radius = outsideMin + (outsideMax-outsideMin)*(0.20 + 0.80*rng());
       const y = 0.095 + rng()*0.020;
 
-      let targetPosition = chooseSeparatedWhiteMetricPoint(
-        angle, metric, y, usedLandingPoints, minSep*1.30, rng, false
+      let targetPosition = chooseSeparatedRadiusPoint(
+        angle, radius, y, usedLandingPoints, minSep*1.30, rng, 0.11, 0.10
       );
-      targetPosition = keepWorldPointInsideScreen(targetPosition, angle, metric, y, rng);
+      targetPosition = keepWorldRadiusPointInsideScreen(targetPosition, angle, radius, y, rng, Number(C.game?.scenarioOutRadiusMin || 2.54));
       usedLandingPoints.push(targetPosition);
 
       const distToImpact = Math.hypot(
@@ -2313,28 +1635,24 @@
     });
 
     // IN points:
-    // spread around the whole white circle with a minimum separation, kept
-    // with a clear visual margin from the chalk line itself - v0.12.3 let
-    // "roughly every third" piece sit almost on the line (metric up to
-    // 0.97), which on this photo-realistic field reads as "outside" to
-    // the player even though it's still technically inside, making the
-    // score look wrong. Only an occasional piece is now allowed near the
-    // (safer, lower) edge band, and the rest stay solidly inside it.
+    // keep them fully inside the white ring by their centres, with some pieces
+    // allowed close enough that 15-20% of the mesh may overlap the line.
     insideIds.forEach((id,order)=>{
       const item = roundPool.chukos[id];
       if (!item?.mesh) return;
 
       const n = Math.max(1,insideIds.length);
       const golden = 2.399963229728653; // avoids radial rows / clusters
-      const angle = scatterAxisAngle + order*golden + (rng()-0.5)*0.18;
+      const angle = scatterAxisAngle + order*golden + (rng()-0.5)*0.10;
 
       let metric;
-      if (order % 5 === 0) {
+      // Roughly every third inside piece is allowed near the white line.
+      if (order % 3 === 0) {
         metric = insideEdgeMin + (insideEdgeMax-insideEdgeMin)*rng();
       } else {
         const t = (order + 0.5) / n;
-        const shaped = 0.20 + 0.55*Math.sqrt(Math.max(0,Math.min(1,t)));
-        metric = insideMin + (insideMax-insideMin)*Math.min(0.75, shaped);
+        const shaped = 0.22 + 0.70*Math.sqrt(Math.max(0,Math.min(1,t)));
+        metric = insideMin + (insideMax-insideMin)*Math.min(0.88, shaped);
       }
 
       const y = 0.090 + rng()*0.024;
@@ -2366,16 +1684,12 @@
         : scatterAxisAngle + Math.PI*0.82 + (rng()-0.5)*0.34;
 
       const metric = targeted
-        ? Math.min(outsideMetricCap, outsideMin + (outsideMax-outsideMin)*(0.45+0.55*rng()))
+        ? outsideMin + (outsideMax-outsideMin)*(0.45+0.55*rng())
         : 0.26 + rng()*0.14;
 
-      // NB: targeted (out) and non-targeted (still inside) KHAN previously used
-      // the exact same separation multiplier here (a copy/paste leftover) -
-      // the targeted case now gets more room, matching the wider spread the
-      // regular выбитые chükö get above.
       let targetPosition = chooseSeparatedWhiteMetricPoint(
         angle, metric, targeted?0.14:0.135,
-        usedLandingPoints, targeted ? minSep*1.30 : minSep*1.10, rng, !targeted
+        usedLandingPoints, targeted ? minSep*1.20 : minSep*1.20, rng, !targeted
       );
       if (targeted) targetPosition = keepWorldPointInsideScreen(targetPosition, angle, metric, 0.14, rng);
       usedLandingPoints.push(targetPosition);
@@ -2398,16 +1712,7 @@
   }
 
   function startScenarioScatter() {
-    if (!scenarioRuntime.active || !scenarioRuntime.flightPlan.length || scenarioRuntime.scatterActive || scenarioRuntime.scatterComplete) {
-      debugLog('startScenarioScatter EARLY-RETURN (this would explain a stuck SAKA!)', {
-        active: scenarioRuntime.active,
-        flightPlanLength: scenarioRuntime.flightPlan.length,
-        scatterActive: scenarioRuntime.scatterActive,
-        scatterComplete: scenarioRuntime.scatterComplete
-      });
-      return;
-    }
-    debugLog('SCATTER STARTED', { pieces: scenarioRuntime.flightPlan.length });
+    if (!scenarioRuntime.active || !scenarioRuntime.flightPlan.length || scenarioRuntime.scatterActive || scenarioRuntime.scatterComplete) return;
     const now = performance.now();
     scenarioRuntime.scatterStartedAt = now;
     scenarioRuntime.scatterActive = true;
@@ -2454,29 +1759,18 @@
 
     if (!allDone) return;
 
-    debugLog('SCATTER ANIMATION COMPLETE (natural)', {});
-    finalizeScenarioFlightPlan();
-  }
-
-  // Snaps every piece in the precomputed flight plan straight to its final
-  // target position/rotation and marks the resulting out/khanOut state.
-  // Used both by the normal end-of-tween path above and by
-  // forceCompleteScenarioIfNeeded() when the tween never got to run at all.
-  function finalizeScenarioFlightPlan() {
     scenarioRuntime.flightPlan.forEach(entry=>{
       const item=entry.item;
-      if (!item?.mesh) return;
+      if (!item?.mesh || !item?.aggregate?.body) return;
       item.mesh.position.copyFrom(entry.targetPosition);
       item.mesh.rotationQuaternion=entry.targetRotation.clone();
       item.mesh.computeWorldMatrix(true);
-      if (item.aggregate?.body) {
-        try {
-          item.aggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
-          item.aggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
-          item.aggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
-          item.aggregate.body.disablePreStep=true;
-        } catch (_) {}
-      }
+      try {
+        item.aggregate.body.setLinearVelocity(BABYLON.Vector3.Zero());
+        item.aggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
+        item.aggregate.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+        item.aggregate.body.disablePreStep=true;
+      } catch (_) {}
       if (entry.isKhan) scenarioRuntime.khanOut=!!entry.targeted;
       else if (entry.targeted) scenarioRuntime.outIds.add(entry.index);
     });
@@ -2487,42 +1781,6 @@
     scenarioRuntime.scatterComplete=true;
     roundPhysicsFrozen=true;
     syncAllGlbVisuals();
-  }
-
-  // Safety net: the natural path to a finished scenario round is
-  // startScenarioScatter() -> updateScenarioScatterAnimation() reaching
-  // allDone. That path depends on SAKA actually entering the narrow
-  // contact-trigger window (see applyImpactBoostIfNeeded). If it doesn't -
-  // a collision deflects SAKA, a dropped frame skips the window, etc. - the
-  // round used to settle with outIds still empty while the LMS-authoritative
-  // win/balance was already fixed, producing a visible mismatch with only a
-  // console.warn to show for it. This forces the round straight to the
-  // outcome that was already committed to in prepareScenarioLandingPlan()
-  // before SAKA was even thrown, and reports the miss to the LMS so it is
-  // visible outside the browser console.
-  function forceCompleteScenarioIfNeeded() {
-    if (!scenarioRuntime.active || !scenarioRuntime.plan || scenarioRuntime.scatterComplete) return;
-    if (!scenarioRuntime.flightPlan.length) return; // nothing was planned (round never threw)
-
-    const reason = scenarioRuntime.scatterActive ? 'timeout-mid-scatter' : 'contact-not-detected';
-    console.warn(`[CHUKO 0.12.3] scenario scatter did not finish naturally (${reason}); forcing planned outcome`, {
-      ticketId: gameState.ticket?.ticketId, plan: scenarioRuntime.plan
-    });
-    debugLog('FORCED COMPLETE (contact/scatter never finished naturally)', {
-      reason,
-      sakaY: saka?.position?.y?.toFixed?.(3),
-      impactBoosted: throwState.impactBoosted,
-      scatterActive: scenarioRuntime.scatterActive
-    });
-
-    finalizeScenarioFlightPlan();
-
-    LMS?.emit?.('X2_GAME_ERROR', {
-      stage: 'scenarioScatter',
-      code: 'SCENARIO_FORCED_COMPLETE',
-      message: `Scenario scatter forced to its precomputed outcome (${reason})`,
-      ticketId: gameState.ticket?.ticketId || null
-    });
   }
 
   function computePhysicalResult() {
@@ -2554,6 +1812,59 @@
     } catch (_) {}
   }
 
+  function markScenarioOut(item, index, isKhan=false) {
+    if (!item?.mesh || !item?.aggregate?.body || !scenarioRuntime.active) return false;
+    const metric = whiteRingMetricForItem(item);
+    const markMetric = Number(C.game?.scenarioOutMarkMetric || 1.12);
+    if (metric == null || metric < markMetric || item.mesh.position.y > 0.48) return false;
+
+    if (isKhan) {
+      if (scenarioRuntime.khanOut) return true;
+      scenarioRuntime.khanOut = true;
+    } else {
+      if (scenarioRuntime.outIds.has(index)) return true;
+      scenarioRuntime.outIds.add(index);
+    }
+
+    // Once a selected piece has clearly landed outside, freeze it exactly where
+    // physics put it. No later teleport and no delayed second movement.
+    freezeItemAtCurrentPosition(item);
+    return true;
+  }
+
+  function keepScenarioNonTargetInside(item) {
+    if (!item?.mesh || !item?.aggregate?.body || roundPhysicsFrozen) return;
+    const metric = whiteRingMetricForItem(item);
+    if (metric == null) return;
+
+    const softMetric = Number(C.game?.scenarioInsideSoftMetric || 0.74);
+    if (metric <= softMetric) return;
+
+    const mesh = item.mesh;
+    const body = item.aggregate.body;
+    const r = Math.hypot(mesh.position.x, mesh.position.z);
+    const inv = 1 / Math.max(1e-6, r || 1);
+    const nx = mesh.position.x * inv;
+    const nz = mesh.position.z * inv;
+    const vel = readLinearVelocity(body);
+    const speed = Math.hypot(vel.x,vel.y,vel.z);
+    const elapsed = scenarioRuntime.impactAt ? performance.now() - scenarioRuntime.impactAt : 0;
+    if (elapsed > 260 && speed < 0.10) return;
+    const outward = vel.x*nx + vel.z*nz;
+    const over = Math.max(0, metric-softMetric);
+    const pull = 0.34 + Math.min(1.10, over*3.6);
+
+    let vx = vel.x*0.78 - nx*pull;
+    let vz = vel.z*0.78 - nz*pull;
+    if (outward > 0) {
+      vx -= nx*outward*1.45;
+      vz -= nz*outward*1.45;
+    }
+    try {
+      body.setLinearVelocity(new BABYLON.Vector3(vx, Math.min(vel.y,0.20), vz));
+    } catch (_) {}
+  }
+
   function freezeRoundPhysics() {
     if (roundPhysicsFrozen) return;
     roundPhysicsFrozen = true;
@@ -2562,12 +1873,7 @@
 
   function finalizeScenarioVisual() {
     // v0.12.3: final positions were chosen BEFORE SAKA launched.
-    // If the natural scatter animation never reached completion (missed
-    // contact trigger, dropped frames, deflection off the static pile),
-    // force it straight to that precomputed outcome so the visible result
-    // always matches the LMS-authoritative scenario. Never otherwise
-    // rearrange anything after the pieces have genuinely landed.
-    forceCompleteScenarioIfNeeded();
+    // Never rearrange anything after the pieces have landed.
     freezeRoundPhysics();
   }
 
@@ -2584,16 +1890,21 @@
       else gameState.realBalance = gameState.balance;
     }
 
+    if (ui.resultMain) ui.resultMain.textContent = plan.khan ? `Выбито: ${plan.regular} + ХАН` : `Выбито: ${plan.regular}`;
+    if (ui.resultSub) ui.resultSub.textContent = `Выигрыш: ${formatMoney(gameState.ticket.win || 0)} · ${plan.key}`;
+    if (ui.resultCard) {
+      ui.resultCard.hidden = false;
+      ui.resultCard.classList.toggle('win', Number(gameState.ticket.win || 0) > 0);
+    }
+
     if (physical.out !== plan.regular || physical.khanOut !== plan.khan) {
-      console.warn('[CHUKO 0.13.0] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+      console.warn('[CHUKO 0.12.6] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
     gameState.ticketReady = false;
     gameState.busy = false;
-    showResultToast();
-    saveCompletedTicketLocally(gameState.ticket, gameState.mode);
-    renderState();
+    updateGameHud();
     LMS?.emit?.('X2_GAME_ROUND_COMPLETE', {
       gameId:LMS_CFG.gameId || 'CHUKO',
       ticketId:gameState.ticket.ticketId,
@@ -2607,12 +1918,9 @@
       language:gameState.language,
       mode:gameState.mode
     });
-    handleAutoRoundComplete();
   }
 
   async function refreshBalance() {
-    gameState.phase = 'loading';
-    renderState();
     try {
       if (gameState.mode === 'demo') {
         gameState.balance = Number(gameState.demoBalance);
@@ -2623,32 +1931,26 @@
         if (data.currency) gameState.currency = String(data.currency).toUpperCase();
         if (data.currencyDisplay) gameState.currencyDisplay = String(data.currencyDisplay);
       }
-      gameState.phase = 'idle';
-      renderDenominationButtons({centerActive:true});
-      renderState();
       LMS?.emit?.('X2_GAME_BALANCE_LOADED', {gameId:LMS_CFG.gameId || 'CHUKO', balance:gameState.balance, currency:gameState.currency, currencyDisplay:gameState.currencyDisplay, mode:gameState.mode});
     } catch (err) {
       console.error(err);
       gameState.phase = 'error';
-      showStatus(tr('balanceError'));
-      renderState();
+      ui.hint.textContent = 'Не удалось загрузить баланс';
       LMS?.emit?.('X2_GAME_ERROR',{stage:'balance',code:err.code||'BALANCE_ERROR',message:err.message||String(err)});
     }
+    updateGameHud();
   }
 
   async function requestNewGame() {
     if (!['idle','settled'].includes(gameState.phase) || gameState.busy) return;
-    if (autoPlay.active && Number.isFinite(autoPlay.fixedStake)) {
-      gameState.denomination = Number(autoPlay.fixedStake);
-    }
     hideGameResult();
-    showStatus('');
     gameState.busy = true;
     gameState.phase = 'requesting';
     gameState.ticketReady = false;
     gameState.ticket = null;
     clearScenarioRuntime();
-    renderState();
+    ui.hint.textContent = 'Получаем билет…';
+    updateGameHud();
     try {
       const request = {
         gameId:LMS_CFG.gameId || 'CHUKO',
@@ -2671,14 +1973,12 @@
       gameState.ticketReady = true;
       gameState.busy = false;
       resetRound();
-      renderDenominationButtons();
-      renderState();
+      updateGameHud();
       LMS?.emit?.('X2_GAME_TICKET_READY', {
         gameId:LMS_CFG.gameId || 'CHUKO', ticketId:data.ticketId, scenario:data.scenario, scenarioKey:data.scenarioKey,
         denomination:gameState.denomination, currency:gameState.currency, currencyDisplay:gameState.currencyDisplay,
         language:gameState.language, mode:gameState.mode
       });
-      if (autoPlay.active) scheduleAutoThrow();
     } catch (err) {
       console.error(err);
       gameState.phase = 'idle';
@@ -2686,157 +1986,35 @@
       gameState.ticketReady = false;
       gameState.ticket = null;
       const code = err.code || 'GAME_START_ERROR';
-      showStatus(code === 'INSUFFICIENT_FUNDS' ? tr('insufficient') : code === 'SESSION_EXPIRED' ? tr('sessionEnded') : tr('startError'));
-      if (autoPlay.active) { clearAutoTimers(); finishAutoPlay(); }
-      renderState();
+      ui.hint.textContent = code === 'INSUFFICIENT_FUNDS' ? 'Недостаточно средств' : 'Не удалось получить билет';
+      updateGameHud();
       LMS?.emit?.('X2_GAME_ERROR',{stage:'newGame',code,message:err.message||String(err)});
     }
   }
 
   async function setGameMode(mode) {
-    if (!gameState.demoAllowed || autoPlay.active || !['idle','settled'].includes(gameState.phase) || gameState.busy) return;
+    if (!['idle','settled'].includes(gameState.phase) || gameState.busy) return;
     const next = mode === 'real' ? 'real' : 'demo';
+    if (next === 'demo' && !gameState.demoAllowed) return;
     if (next === gameState.mode) return;
     gameState.mode = next;
     gameState.ticket = null;
     gameState.ticketReady = false;
     gameState.pendingBalance = null;
-    autoPlay.selected = null;
     clearScenarioRuntime();
     hideGameResult();
     resetRound();
     LMS?.emit?.('X2_GAME_MODE_CHANGED',{gameId:LMS_CFG.gameId || 'CHUKO',mode:gameState.mode,currency:gameState.currency,language:gameState.language,denomination:gameState.denomination});
     await refreshBalance();
     gameState.phase = 'idle';
-    renderState();
-  }
-
-  // Single contextual action button: idle/settled -> new ticket,
-  // ready -> throw, error -> retry. Replaces the old separate
-  // "БРОСИТЬ САКА" / "НОВАЯ ИГРА" button pair.
-  function renderState() {
-    if (!ui.action) return;
-    let label = tr('loading');
-    let disabled = false;
-    switch (gameState.phase) {
-      case 'idle':
-      case 'settled': label = tr('newGame'); break;
-      case 'requesting': label = tr('loading'); disabled = true; break;
-      case 'ready': label = tr('makeThrow'); break;
-      case 'throwing': label = tr('throwing'); disabled = true; break;
-      case 'loading': label = tr('loading'); disabled = true; break;
-      case 'error': label = tr('retry'); break;
-      default: disabled = true;
-    }
-    ui.action.textContent = label;
-    ui.action.disabled = disabled || autoPlay.active || gameState.busy;
-    if (ui.balance) ui.balance.textContent = `${formatMoney(gameState.balance)} ${gameState.currencyDisplay || gameState.currency}`;
-    renderDenominationButtons();
-    renderModeSwitch();
-    renderAutoPlayButton();
-    renderAudioControls();
-    renderTicketNumber();
-    renderScore();
-    syncAudioWithState();
+    updateGameHud();
   }
 
   function bindGameUi() {
-    // Browser audio starts only after a user gesture.
-    document.addEventListener('pointerdown', unlockAudio, { once:true, capture:true });
-
-    ui.sound?.addEventListener('click', e => { e.stopPropagation(); toggleSound(); });
-    ui.music?.addEventListener('click', e => { e.stopPropagation(); toggleMusic(); });
-
-    ui.action?.addEventListener('click', () => {
-      if (autoPlay.active) return;
-      if (gameState.phase === 'ready') throwSaka();
-      else if (gameState.phase === 'idle' || gameState.phase === 'settled') requestNewGame();
-      else if (gameState.phase === 'error') refreshBalance();
-    });
-
-    ui.autoPlay?.addEventListener('click', e => {
-      e.stopPropagation();
-      if (autoPlay.active) { requestAutoStop(); return; }
-      if (!['idle','settled'].includes(gameState.phase)) return;
-      if (Number.isInteger(autoPlay.selected) && autoPlay.selected > 0) { startAutoPlay(autoPlay.selected); return; }
-      renderAutoPlayMenu();
-      const open = !ui.autoMenu?.classList.contains('open');
-      ui.autoMenu?.classList.toggle('open', open);
-      ui.autoMenu?.setAttribute('aria-hidden', open ? 'false' : 'true');
-    });
-    ui.autoMenu?.addEventListener('click', e => e.stopPropagation());
-    document.addEventListener('click', () => closeAutoMenu());
-
-    ui.deposit?.addEventListener('click', () => LMS?.emit?.('X2_GAME_DEPOSIT_REQUEST', {
-      gameId:LMS_CFG.gameId || 'CHUKO', mode:gameState.mode, currency:gameState.currency,
-      denomination:gameState.denomination, language:gameState.language, balance:gameState.balance
-    }));
-
-    const scrollDenominations = direction => {
-      if (!ui.denomViewport) return;
-      const option = ui.denomTrack?.querySelector('.denom-option');
-      const step = (option?.offsetWidth || 54) + 6;
-      ui.denomViewport.scrollBy({ left: direction * step * 2, behavior: 'smooth' });
-      setTimeout(updateDenominationArrows, 220);
-    };
-    ui.denomPrev?.addEventListener('click', () => scrollDenominations(-1));
-    ui.denomNext?.addEventListener('click', () => scrollDenominations(1));
-    ui.denomViewport?.addEventListener('scroll', updateDenominationArrows, { passive:true });
-    window.addEventListener('resize', () => requestAnimationFrame(updateDenominationArrows));
-
-    ui.modeSwitch?.querySelectorAll('button').forEach(b => b.addEventListener('click', () => setGameMode(b.dataset.mode)));
-
-    const closeInfoMenu = () => {
-      ui.infoMenu?.classList.remove('open');
-      ui.infoMenu?.setAttribute('aria-hidden','true');
-      ui.info?.classList.remove('active');
-    };
-    const openHelp = () => {
-      closeInfoMenu();
-      ui.helpModal?.classList.add('open');
-      ui.helpModal?.setAttribute('aria-hidden','false');
-      LMS?.emit?.('X2_GAME_HELP_REQUEST', {gameId:LMS_CFG.gameId || 'CHUKO', language:gameState.language, mode:gameState.mode});
-    };
-    const closeHelp = () => { ui.helpModal?.classList.remove('open'); ui.helpModal?.setAttribute('aria-hidden','true'); };
-    const openPayout = () => { closeInfoMenu(); renderPayoutGrid(); ui.payoutModal?.classList.add('open'); ui.payoutModal?.setAttribute('aria-hidden','false'); };
-    const closePayout = () => { ui.payoutModal?.classList.remove('open'); ui.payoutModal?.setAttribute('aria-hidden','true'); };
-    const closeTickets = () => { ui.ticketsModal?.classList.remove('open'); ui.ticketsModal?.setAttribute('aria-hidden','true'); };
-
-    ui.info?.addEventListener('click', e => {
-      e.stopPropagation();
-      playUiTone();
-      closeAutoMenu();
-      const open = !ui.infoMenu?.classList.contains('open');
-      ui.infoMenu?.classList.toggle('open', open);
-      ui.infoMenu?.setAttribute('aria-hidden', open ? 'false' : 'true');
-      ui.info?.classList.toggle('active', open);
-    });
-    ui.infoMenu?.addEventListener('click', e => e.stopPropagation());
-    ui.infoPayout?.addEventListener('click', openPayout);
-    ui.infoHow?.addEventListener('click', openHelp);
-    ui.infoTickets?.addEventListener('click', () => { closeInfoMenu(); renderLocalTicketHistory(); ui.ticketsModal?.classList.add('open'); ui.ticketsModal?.setAttribute('aria-hidden','false'); });
-
-    ui.helpClose?.addEventListener('click', closeHelp);
-    ui.helpOk?.addEventListener('click', closeHelp);
-    ui.helpModal?.addEventListener('click', e => { if (e.target === ui.helpModal) closeHelp(); });
-
-    ui.payoutClose?.addEventListener('click', closePayout);
-    ui.payoutOk?.addEventListener('click', closePayout);
-    ui.payoutModal?.addEventListener('click', e => { if (e.target === ui.payoutModal) closePayout(); });
-
-    ui.ticketsClose?.addEventListener('click', closeTickets);
-    ui.ticketsOk?.addEventListener('click', closeTickets);
-    ui.ticketsModal?.addEventListener('click', e => { if (e.target === ui.ticketsModal) closeTickets(); });
-
-    document.addEventListener('click', closeInfoMenu);
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeInfoMenu(); closeHelp(); closePayout(); closeTickets(); }
-    });
-
+    ui.demoModeBtn?.addEventListener('click',()=>setGameMode('demo'));
+    ui.realModeBtn?.addEventListener('click',()=>setGameMode('real'));
     renderDenominationButtons();
-    renderAutoPlayMenu();
-    applyTranslations();
-    renderState();
+    updateGameHud();
   }
 
   async function initializeGameIntegration() {
@@ -2849,16 +2027,16 @@
     gameState.denomination = gameState.denominations.includes(preferred) ? preferred : gameState.denominations[0];
     gameState.currency = String(settings.currency || 'KGS').toUpperCase();
     gameState.currencyDisplay = String(settings.currencyDisplay || settings.currency || 'сом');
-    gameState.language = String(settings.language || 'RU').toUpperCase() === 'KG' ? 'KG' : 'RU';
+    gameState.language = String(settings.language || 'RU').toUpperCase();
     gameState.mode = String(settings.mode || 'demo').toLowerCase() === 'real' ? 'real' : 'demo';
     gameState.demoAllowed = settings.demoAllowed !== false;
     gameState.demoBalance = Number(settings.demoBalance ?? LMS_CFG.demoBalance ?? 10000);
     gameState.phase = 'idle';
-    applyTranslations();
+    renderDenominationButtons();
     await refreshBalance();
     resetRound();
-    renderState();
-    showStatus('');
+    updateGameHud();
+    ui.hint.textContent = 'Выберите номинал и нажмите «Новая игра»';
   }
 
   function resetRound() {
@@ -2877,6 +2055,8 @@
     roundIndex++;
     roundSeed = roundIndex * 7919 + 17;
     throwState = { active: false, targetPoint: null, guideDir: null, power: 0, impactBoosted: false, flightTime: 0 };
+    ui.throwBtn.disabled = false;
+    ui.throwBtn.textContent = 'БРОСИТЬ САКА';
     hideGameResult();
     ui.hint.textContent = gameState.ticketReady && gameState.ticket
       ? `Билет #${gameState.ticket.ticketId} · ${gameState.denomination} ${gameState.currencyDisplay} · потяните САКА`
@@ -2946,7 +2126,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.12.3] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.12.6] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
@@ -3157,19 +2337,11 @@
     // Very close to contact, remove the last few centimetres of accumulated
     // numerical/collision error. This is still velocity guidance, not teleporting.
     const horizontalError = Math.hypot(tp.x - saka.position.x, tp.z - saka.position.z);
-    if (saka.position.y <= contactY + 0.16 && horizontalError < 0.22) {
-      const closeT = Math.max(0.022, t);
-      vx = Math.max(-maxSpeed, Math.min(maxSpeed, (tp.x - saka.position.x) / closeT));
-      vz = Math.max(-maxSpeed, Math.min(maxSpeed, (tp.z - saka.position.z) / closeT));
+    if (saka.position.y <= contactY + 0.18 && horizontalError < 0.32) {
+      const closeT = Math.max(0.016, t * 0.78);
+      vx = Math.max(-maxSpeed*1.18, Math.min(maxSpeed*1.18, (tp.x - saka.position.x) / closeT));
+      vz = Math.max(-maxSpeed*1.18, Math.min(maxSpeed*1.18, (tp.z - saka.position.z) / closeT));
     }
-
-    debugLogThrottled('steering', {
-      sakaY: saka.position.y.toFixed(3),
-      contactY: contactY.toFixed(3),
-      horizontalError: horizontalError.toFixed(3),
-      t: t.toFixed(4),
-      vx: vx.toFixed(3), vz: vz.toFixed(3), vy: velocity.y.toFixed(3)
-    });
 
     sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(vx, velocity.y, vz));
   }
@@ -3209,14 +2381,7 @@
   function sakaScreenPosition() {
     if (!saka || !scene?.activeCamera) return null;
     const viewport = scene.activeCamera.viewport.toGlobal(ui.canvas.clientWidth, ui.canvas.clientHeight);
-    // Project the same point that is actually drawn on screen (mesh position
-    // plus the visual-only anti-clipping lift applied in syncVisualItem),
-    // not the invisible physics proxy's raw position. Otherwise the tap/drag
-    // hit-test circle sits below the visible SAKA sprite and only its lower
-    // edge is tappable.
-    const liftedY = saka.position.y + sakaVisualLiftY(saka);
-    const point = new BABYLON.Vector3(saka.position.x, liftedY, saka.position.z);
-    return BABYLON.Vector3.Project(point, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), viewport);
+    return BABYLON.Vector3.Project(saka.position, BABYLON.Matrix.Identity(), scene.getTransformMatrix(), viewport);
   }
 
 
@@ -3324,14 +2489,13 @@
   function bindAimControls() {
     ui.canvas.addEventListener('pointerdown', (e) => {
       if (thrown || !saka || gameState.phase !== 'ready' || !gameState.ticketReady) return;
-      // Only a press that starts on SAKA itself can lead to a throw - either
-      // a drag (aiming) or a plain tap-release. A tap anywhere else on the
-      // field must do nothing.
-      if (!isPointerNearSaka(e)) return;
-
+      const p = canvasPointer(e);
       aimState.tapCandidate = true;
       aimState.downX = e.clientX;
       aimState.downY = e.clientY;
+
+      if (!isPointerNearSaka(e)) return;
+
       aimState.dragging = true;
       aimState.pointerId = e.pointerId;
       aimState.power = 0;
@@ -3360,13 +2524,16 @@
         aimState.pointerId = null;
         aimState.tapCandidate = false;
         if (ui.aimPower) ui.aimPower.hidden = true;
-        // A quick tap on SAKA (didn't pull back far enough to register real
-        // power) still throws, using the default auto-aim - same as before,
-        // just now gated on the press having started on SAKA (see
-        // pointerdown above), not anywhere on the field.
         if (power < 0.06 || !guideDir || !targetPoint) throwSaka();
         else throwSaka({ guideDir, targetPoint, power, manual: true });
         e.preventDefault();
+        return;
+      }
+
+      if (aimState.tapCandidate && !thrown && gameState.phase === 'ready' && gameState.ticketReady) {
+        const p = canvasPointer(e);
+        aimState.tapCandidate = false;
+        if (p.y < p.height * 0.82) throwSaka();
       }
     };
 
@@ -3402,17 +2569,23 @@
     const maxDist = Number(C.game?.sakaContactSnapMaxDistance || 0.95);
     if (bestDist > maxDist) return point;
 
-    // Aim the SAKA centre directly over the closest real chükö.
-    // This guarantees visible contact before the deterministic scatter begins.
-    return { x: best.item.mesh.position.x, z: best.item.mesh.position.z };
+    // Keep manual aim visually smooth: instead of hard snapping the marker far away,
+    // only nudge the landing point toward the nearest real chükö so SAKA always has contact.
+    const pull = Math.max(0.0, Math.min(1.0, 1.0 - bestDist / Math.max(0.001, maxDist)));
+    const blend = 0.28 + 0.54 * pull;
+    return {
+      x: point.x + (best.item.mesh.position.x - point.x) * blend,
+      z: point.z + (best.item.mesh.position.z - point.z) * blend
+    };
   }
 
   function throwSaka(options = {}) {
     if (thrown || !saka || !sakaAggregate || gameState.phase !== 'ready' || !gameState.ticketReady) return;
     thrown = true;
     gameState.phase = 'throwing';
-    renderState();
-    playEffectFile('throw', 0.82);
+    updateGameHud();
+    ui.throwBtn.disabled = true;
+    ui.throwBtn.textContent = 'САКА В ПОЛЁТЕ…';
     if (ui.aimPower) ui.aimPower.hidden = true;
     // Keep the selected ring visible during the flight so the exact contact can
     // be checked visually. Only hide the dotted guide.
@@ -3474,23 +2647,6 @@
       flightTime: ballistic.flightTime
     };
 
-    debugRoundStartAt = performance.now();
-    debugLastLogAt = 0;
-    debugLog('THROW', {
-      power: power.toFixed(3),
-      start: { x: start.x.toFixed(3), y: start.y.toFixed(3), z: start.z.toFixed(3) },
-      target: { x: target.x.toFixed(3), y: target.y.toFixed(3), z: target.z.toFixed(3) },
-      landingPoint,
-      flightTimeSec: ballistic.flightTime.toFixed(3),
-      arcHeight: ballistic.arcHeight.toFixed(3),
-      velocity: { x: ballistic.velocity.x.toFixed(3), y: ballistic.velocity.y.toFixed(3), z: ballistic.velocity.z.toFixed(3) },
-      scenarioActive: scenarioRuntime.active,
-      deterministicScatter: C.game?.deterministicScatter !== false,
-      flightPlanLength: scenarioRuntime.flightPlan.length,
-      triggerHeight: Number(C.game?.sakaDeterministicContactTriggerY || 0.43),
-      triggerRadius: Number(C.game?.sakaDeterministicContactRadius || 0.22)
-    });
-
     ui.hint.textContent = `Удар ${Math.round(power * 100)}% · ждём контакт и разлёт`;
 
     // Pile remains STATIC after launch; onBeforeRender releases it only when SAKA is almost touching it.
@@ -3536,52 +2692,6 @@
     return out;
   }
 
-  // Fires the deterministic scenario contact exactly once per throw, however
-  // it was detected (real Havok collision or the height/radius heuristic
-  // below). Idempotent by the throwState.impactBoosted guard.
-  function triggerScenarioContact(point, source) {
-    if (!throwState.active || throwState.impactBoosted || !saka) return;
-    const tp = point || throwState.targetPoint || { x: saka.position.x, z: saka.position.z };
-    debugLog('CONTACT TRIGGERED', {
-      source: source || 'unknown',
-      sakaY: saka.position.y.toFixed(3),
-      sakaXZ: { x: saka.position.x.toFixed(3), z: saka.position.z.toFixed(3) },
-      targetPoint: throwState.targetPoint
-    });
-    pileReleasedForThrow = true; // bookkeeping only; pile stays STATIC either way
-    throwState.impactBoosted = true;
-    triggerImpactFx(tp, throwState.power || 0.6);
-    if (aimTarget) aimTarget.setEnabled(false);
-    playEffectFile(scenarioRuntime.khanTarget ? 'khanImpact' : 'impact', 1.0);
-    // No post-impact steering and no late correction. The whole scatter uses
-    // the precomputed landing plan prepared before the throw.
-    startScenarioScatter();
-  }
-
-  // Real contact detection: fires the moment Havok reports SAKA actually
-  // touching a chükö/KHAN collider, instead of guessing from position alone.
-  // This is the primary trigger for deterministic rounds - the height/radius
-  // check in applyImpactBoostIfNeeded() is only a fallback in case a
-  // collision event is ever missed (sleeping bodies, engine quirks, etc.).
-  function onSakaCollision(evt) {
-    // Once impactBoosted is set, everything else is post-contact physics
-    // noise (SAKA settling against neighbouring pieces/field) - not logged
-    // to keep the console usable if DEBUG_CONTACT is re-enabled later.
-    if (throwState.impactBoosted) return;
-    const otherNode = evt?.collidedAgainst?.transformNode;
-    const name = otherNode?.name || '(none)';
-    debugLog('HAVOK COLLISION EVENT', {
-      with: name,
-      type: evt?.type,
-      thrown, throwStateActive: throwState.active,
-      scenarioActive: scenarioRuntime.active
-    });
-    if (!thrown || !throwState.active) return;
-    if (!scenarioRuntime.active || C.game?.deterministicScatter === false) return;
-    if (!name.startsWith('chuko-') && name !== 'KHAN') return;
-    triggerScenarioContact(null, 'collision:' + name);
-  }
-
   function applyImpactBoostIfNeeded() {
     const cfg = C.throw.impactBoost;
     if (!cfg?.enabled || !throwState.active || throwState.impactBoosted || !saka || !throwState.targetPoint) return;
@@ -3590,40 +2700,25 @@
     const sakaVelocity = readLinearVelocity(sakaAggregate?.body);
     if (sakaVelocity.y > 0.15) return;
 
-    const dxPre = saka.position.x - tp.x;
-    const dzPre = saka.position.z - tp.z;
-    const distPre = Math.hypot(dxPre, dzPre);
     const deterministicRound = scenarioRuntime.active && C.game?.deterministicScatter !== false;
+    const impactRef = deterministicRound && scenarioRuntime.contactPoint
+      ? scenarioRuntime.contactPoint
+      : tp;
+    const dxPre = saka.position.x - impactRef.x;
+    const dzPre = saka.position.z - impactRef.z;
+    const distPre = Math.hypot(dxPre, dzPre);
     const triggerHeight = deterministicRound
-      ? Number(C.game?.sakaDeterministicContactTriggerY || 0.43)
+      ? Math.min(Number(C.game?.sakaDeterministicContactTriggerY || 0.40), ballisticTargetYForAim() + 0.09)
       : Number(cfg.triggerHeight || 0.72);
     const triggerRadius = deterministicRound
-      ? Number(C.game?.sakaDeterministicContactRadius || 0.22)
+      ? Number(C.game?.sakaDeterministicContactRadius || 0.18)
       : Number(cfg.triggerRadius || 0.48);
 
-    debugLogThrottled('falling', {
-      sakaY: saka.position.y.toFixed(3),
-      sakaVelY: sakaVelocity.y.toFixed(3),
-      distPre: distPre.toFixed(3),
-      triggerHeight, triggerRadius,
-      deterministicRound,
-      pileReleasedForThrow
-    });
-
-    if (deterministicRound) {
-      // Fallback only: onSakaCollision() above is the primary trigger and
-      // normally fires first, well before this approximate height/radius
-      // check would. This still exists in case the real collision event is
-      // ever missed.
-      if (saka.position.y > triggerHeight || distPre > triggerRadius) return;
-      triggerScenarioContact(tp, 'height-radius-fallback');
-      return;
-    }
-
-    // Physics-only fallback: release the pile the moment SAKA enters the
-    // (looser) impact zone, same as before.
+    // Safety fallback: if the pile has not yet been released but SAKA is already
+    // descending into the real impact zone, release it right now so the scatter
+    // can still happen in this same frame.
     if (!pileReleasedForThrow && saka.position.y <= triggerHeight && distPre <= triggerRadius) {
-      setPileBodiesMotionDynamic();
+      if (!deterministicRound) setPileBodiesMotionDynamic();
       pileReleasedForThrow = true;
     }
     if (!pileReleasedForThrow) return;
@@ -3631,6 +2726,34 @@
     throwState.impactBoosted = true;
     triggerImpactFx(tp, throwState.power || 0.6);
     if (aimTarget) aimTarget.setEnabled(false);
+
+    if (deterministicRound) {
+      // At the deterministic impact moment, anchor SAKA onto the chosen contact chükö.
+      // This guarantees visible touch and immediate scatter, including for far-half hits.
+      let contactX = scenarioRuntime.contactPoint?.x ?? tp.x;
+      let contactZ = scenarioRuntime.contactPoint?.z ?? tp.z;
+      const contactIdx = Number.isFinite(scenarioRuntime.contactChukoIndex) ? scenarioRuntime.contactChukoIndex : -1;
+      const contactItem = contactIdx >= 0 ? roundPool.chukos[contactIdx] : null;
+      if (contactItem?.mesh) {
+        contactX = contactItem.mesh.position.x;
+        contactZ = contactItem.mesh.position.z;
+      }
+      const contactY = ballisticTargetYForAim();
+      try {
+        saka.position.x = contactX;
+        saka.position.z = contactZ;
+        saka.position.y = Math.max(contactY, Math.min(saka.position.y, contactY + 0.010));
+        sakaAggregate.body.setLinearVelocity(new BABYLON.Vector3(0, Math.min(0, sakaVelocity.y), 0));
+        sakaAggregate.body.setAngularVelocity(BABYLON.Vector3.Zero());
+      } catch (_) {}
+      if (throwState?.targetPoint) {
+        throwState.targetPoint.x = contactX;
+        throwState.targetPoint.z = contactZ;
+      }
+      scenarioRuntime.contactPoint = { x: contactX, z: contactZ };
+      startScenarioScatter();
+      return;
+    }
 
     // Physics-only fallback keeps the old Havok impact boost.
     const affectRadius = Math.max(0.35, Number(cfg.affectRadius || 1.24));
@@ -3810,21 +2933,9 @@
     return Math.hypot((p.x - ring.cx) / ring.rx, (p.y - ring.cy) / ring.ry);
   }
 
-  // Two automated attempts to compute this point (camera-matrix unprojection,
-  // then a metric-minimising hill-climb) each looked plausible on paper but
-  // produced a visibly wrong result in the actual browser (verified only by
-  // screenshots, since this sandbox has no WebGL) - the second one was worse
-  // than the first. Both are removed. The scatter pivot is now a pair of
-  // plain tuning values the person calibrating the composition sets by eye
-  // (see "ЦЕНТР РАЗЛЁТА" in the tune panel) and defaults to the pile
-  // position. This is less automatic, but it is the one method that can
-  // actually be verified against what is on screen.
-  function updateScatterPivot() {
-    scatterPivot = {
-      x: Number(tuning.scatterPivotX ?? tuning.pileX ?? 0),
-      z: Number(tuning.scatterPivotZ ?? tuning.pileZ ?? 0)
-    };
-    return scatterPivot;
+  function whiteRingMetricForItem(item) {
+    if (!item?.mesh) return null;
+    return whiteRingMetricForWorld(item.mesh.getAbsolutePosition());
   }
 
   function containSakaInsidePlayCircle() {
@@ -4034,6 +3145,10 @@
     });
 
     window.addEventListener('resize', () => engine.resize(), { passive: true });
+    ui.throwBtn.addEventListener('click', () => {
+      if (gameState.phase === 'ready' && gameState.ticketReady && !thrown) throwSaka();
+    });
+    ui.resetBtn.addEventListener('click', requestNewGame);
     bindAimControls();
 
     updatePerf();
