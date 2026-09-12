@@ -1,14 +1,3 @@
-CHUKO Modern 3D build: 0.13.19
-Scenario set: 2026-09-12-full-khan-variants
-DEMO order:
-ZERO
-ONE
-ONE_KHAN
-TWO
-TWO_KHAN
-THREE
-THREE_KHAN
-FOUR
-FOUR_KHAN
-FIVE
-FIVE_KHAN
+CHUKO Modern 3D build: 0.13.20
+Scenario set: FULL_KHAN_VARIANTS
+Result source: LMS authoritative scenario

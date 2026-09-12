@@ -1,4 +1,4 @@
-/* CHUKO Modern 3D v0.13.19 — authoritative scenario catalogue.
+/* CHUKO Modern 3D v0.13.20 — authoritative scenario catalogue.
  * REAL payout is LMS-authoritative.
  * Numeric IDs are kept for LMS/backward compatibility, while round/display order
  * is defined explicitly below and MUST NOT be derived from numeric sorting.

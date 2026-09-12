@@ -189,7 +189,7 @@
     visualValidation: null,
     active: false
   };
-  // v0.13.19: dynamic round objects are created once and reused on every reset.
+  // v0.13.20: dynamic round objects are created once and reused on every reset.
   // This avoids rebuilding convex hulls/materials/shadow casters when the player taps «ЕЩЁ БРОСОК».
   const roundPool = { initialized: false, chukos: [], khan: null, saka: null };
   const modelBank = {
@@ -396,7 +396,7 @@
     modelBank.saka = sakaModel;
     modelBank.ready = true;
     if (ui.badge) ui.badge.textContent = 'HAVOK · GLB READY';
-    console.info('[CHUKO 0.13.19] GLB bounds', {
+    console.info('[CHUKO 0.13.20] GLB bounds', {
       chuko: chuko.bounds.size,
       khan: khan.bounds.size,
       saka: sakaModel.bounds.size
@@ -1064,7 +1064,7 @@
   }
 
   function createEnvironment() {
-    // v0.13.19: background and field are now DOM/CSS layers, not Babylon meshes.
+    // v0.13.20: background and field are now DOM/CSS layers, not Babylon meshes.
     // Babylon is used only for 3D pieces, trajectory and physics.
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
@@ -1198,7 +1198,7 @@
     return { mesh, aggregate, visual };
   }
 
-  // v0.13.19 pooling/reset -------------------------------------------------------
+  // v0.13.20 pooling/reset -------------------------------------------------------
   // Havok convex hull construction is relatively expensive compared with simply
   // teleporting an existing body. We therefore build the 12 chuko + KHAN + SAKA
   // once, keep their PhysicsAggregates alive and only reset their transforms.
@@ -1322,7 +1322,7 @@
       aggregate.body.getCollisionObservable().add(onSakaCollision);
       debugLog('SAKA collision callback registered OK', {});
     } catch (err) {
-      console.warn('[CHUKO 0.13.19] SAKA collision callback unavailable, relying on the height/radius fallback only', err);
+      console.warn('[CHUKO 0.13.20] SAKA collision callback unavailable, relying on the height/radius fallback only', err);
       debugLog('SAKA collision callback FAILED to register', { error: String(err) });
     }
 
@@ -2245,7 +2245,7 @@
       // The ticket/scenario/win from LMS remains authoritative. Keep the diagnostic only
       // for developers when contact debugging is explicitly enabled.
       if (DEBUG_CONTACT) {
-        console.warn('[CHUKO 0.13.19] FINAL VISUAL VALIDATION FAILED',result);
+        console.warn('[CHUKO 0.13.20] FINAL VISUAL VALIDATION FAILED',result);
       }
     }
     return result;
@@ -2456,7 +2456,7 @@
 
     // IN points:
     // spread around the whole white circle with a minimum separation, kept
-    // with a clear visual margin from the chalk line itself - v0.13.19 let
+    // with a clear visual margin from the chalk line itself - v0.13.20 let
     // "roughly every third" piece sit almost on the line (metric up to
     // 0.97), which on this photo-realistic field reads as "outside" to
     // the player even though it's still technically inside, making the
@@ -2542,7 +2542,7 @@
       }
     });
     if (preflightProblems.length) {
-      console.error('[CHUKO 0.13.19] landing-plan preflight validation failed',preflightProblems);
+      console.error('[CHUKO 0.13.20] landing-plan preflight validation failed',preflightProblems);
     }
 
     scenarioRuntime.flightPlan = flightPlan;
@@ -2660,7 +2660,7 @@
     if (!scenarioRuntime.flightPlan.length) return; // nothing was planned (round never threw)
 
     const reason = scenarioRuntime.scatterActive ? 'timeout-mid-scatter' : 'contact-not-detected';
-    console.warn(`[CHUKO 0.13.19] scenario scatter did not finish naturally (${reason}); forcing planned outcome`, {
+    console.warn(`[CHUKO 0.13.20] scenario scatter did not finish naturally (${reason}); forcing planned outcome`, {
       ticketId: gameState.ticket?.ticketId, plan: scenarioRuntime.plan
     });
     debugLog('FORCED COMPLETE (contact/scatter never finished naturally)', {
@@ -2681,12 +2681,17 @@
   }
 
   function computePhysicalResult() {
-    // Once a scenario has visually settled, the counter is derived from the
-    // ACTUAL final picture: regular chükö count only if their whole footprint
-    // is beyond the calibrated green carpet boundary.
+    // IMPORTANT production rule: once the round is settled, the displayed
+    // result must follow the LMS-authoritative scenario, not device-specific
+    // screen-space geometry. Samsung/Android can project the same final KHAN
+    // position a few pixels differently and incorrectly classify it as inside.
+    // visualScenarioResult() is still used by validateFinalScenarioVisual()
+    // purely for diagnostics; it never overrides the player's ticket result.
     if (scenarioRuntime.active && scenarioRuntime.plan && (scenarioRuntime.scatterComplete || gameState.phase === 'settled')) {
-      const actual=visualScenarioResult();
-      return {out:actual.out,khanOut:actual.khanOut};
+      return {
+        out: Number(scenarioRuntime.plan.regular || 0),
+        khanOut: Boolean(scenarioRuntime.plan.khan)
+      };
     }
 
     // During the throw use only already-finalised OUT state to avoid flicker.
@@ -2713,7 +2718,7 @@
   }
 
   function finalizeScenarioVisual() {
-    // v0.13.19: final positions were chosen BEFORE SAKA launched.
+    // v0.13.20: final positions were chosen BEFORE SAKA launched.
     // If the natural scatter animation never reached completion (missed
     // contact trigger, dropped frames, deflection off the static pile),
     // force it straight to that precomputed outcome so the visible result
@@ -2728,7 +2733,7 @@
     finalizeScenarioVisual();
     const plan = scenarioRuntime.plan || scenarioPlan(gameState.ticket.scenario);
     const visualCheck = validateFinalScenarioVisual(plan);
-    const physical = {out:visualCheck.actual.out,khanOut:visualCheck.actual.khanOut};
+    const physical = {out:Number(plan.regular||0),khanOut:Boolean(plan.khan)};
     gameState.resultShown = true;
 
     if (gameState.pendingBalance != null && Number.isFinite(gameState.pendingBalance)) {
@@ -2747,8 +2752,8 @@
       }
     }
 
-    if (DEBUG_CONTACT && (physical.out !== plan.regular || physical.khanOut !== plan.khan)) {
-      console.warn('[CHUKO 0.13.19] scenario visual mismatch after fallback', {physical, plan, ticket:gameState.ticket});
+    if (DEBUG_CONTACT && !visualCheck.valid) {
+      console.warn('[CHUKO 0.13.20] scenario visual mismatch after fallback', {visual:visualCheck.actual, plan, ticket:gameState.ticket});
     }
 
     gameState.phase = 'settled';
@@ -3153,7 +3158,7 @@
 
     // Useful while profiling on iPhone: this measures JS reset work only.
     const resetMs = performance.now() - resetStartedAt;
-    console.debug(`[CHUKO 0.13.19] pooled reset ${resetMs.toFixed(2)} ms`);
+    console.debug(`[CHUKO 0.13.20] pooled reset ${resetMs.toFixed(2)} ms`);
   }
 
   function ballisticForApex(start, target, power01) {
